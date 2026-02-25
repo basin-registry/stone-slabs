@@ -1,5 +1,2 @@
 name = "test-ssot"
-version = "2.0.0"
-description = "Updated description"
-author = "Test Author"
-homepage = "https://example.com"
+version = "1.0.0"
