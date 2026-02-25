@@ -1,1 +1,1 @@
-export fn greet(name) = "Hello, " + name
+export fn greet(name) = "Hi, " + name
