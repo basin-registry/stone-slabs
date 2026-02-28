@@ -1,0 +1,71 @@
+// clay/profile.stn - 2D Profile Constructors
+// Creates CrossSection-backed profiles for extrusion
+//
+// Usage:
+//   import rect, circle, ellipse from clay/profile
+//   plate = rect({width = 100, height = 60})
+//   hole = circle({radius = 5, center = [20, 0]})
+//   profile = plate |> subtract(hole)
+
+import Profile from clay/types
+import _clay_profile_rect, _clay_profile_circle from _clay_kernel
+import _clay_profile_ellipse, _clay_profile_polygon, _clay_profile_slot from _clay_kernel
+
+// =============================================================================
+// PROFILE SPEC TYPES
+// =============================================================================
+
+export RectProfile = {
+    width: num,
+    height: num,
+    center = [0, 0]
+}
+
+export CircleProfile = {
+    radius: num,
+    center = [0, 0]
+}
+
+export EllipseProfile = {
+    rx: num,
+    ry: num,
+    center = [0, 0],
+    rotation = 0
+}
+
+export PolygonProfile = {
+    points: array<num, 2> = [],
+    sides = 0,
+    radius = 0,
+    center = [0, 0]
+}
+
+export SlotProfile = {
+    start = [0, 0],
+    end = [1, 0],
+    width: num
+}
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+// rect({width, height, center?}) - Rectangle profile
+export fn rect(spec: RectProfile) -> Profile =
+    _clay_profile_rect(spec)
+
+// circle({radius, center?}) - Circle profile
+export fn circle(spec: CircleProfile) -> Profile =
+    _clay_profile_circle(spec)
+
+// ellipse({rx, ry, center?, rotation?}) - Ellipse profile
+export fn ellipse(spec: EllipseProfile) -> Profile =
+    _clay_profile_ellipse(spec)
+
+// polygon({points} or {sides, radius, center?}) - Polygon profile
+export fn polygon(spec: PolygonProfile) -> Profile =
+    _clay_profile_polygon(spec)
+
+// slot({start, end, width}) - Obround/slot profile
+export fn slot(spec: SlotProfile) -> Profile =
+    _clay_profile_slot(spec)

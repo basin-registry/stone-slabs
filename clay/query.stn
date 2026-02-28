@@ -1,0 +1,169 @@
+// clay/query.stn - Query System for Intent-Based Selection
+// Provides face, edge, vertex selection with filters
+//
+// Usage: import faces, edges, convex_edges from clay/query
+//    or: import faces, edges, convex_edges from clay
+//
+// Queries are first-class values that describe HOW to select geometry,
+// not WHICH specific geometry. This makes models robust to changes.
+
+import Feature, Query, Plane, Body from clay/types
+
+// Import kernel query primitives - these handle normalization internally
+import _clay_query_faces, _clay_query_edges, _clay_query_vertices from _clay_kernel
+import _clay_query_edges_of, _clay_query_faces_of from _clay_kernel
+import _clay_filter_query, _clay_query_combine from _clay_kernel
+import _clay_query_count, _clay_query_first, _clay_query_last from _clay_kernel
+
+// =============================================================================
+// INTERNAL FILTER HELPER
+// =============================================================================
+
+// filter(query, spec) - Apply filter spec to narrow selection
+// Not exported — use the named convenience functions below
+fn filter(query: Query, spec) -> Query =
+    _clay_filter_query(query, spec)
+
+// =============================================================================
+// QUERY CONSTRUCTORS
+// =============================================================================
+
+// faces(feature) - Query all faces of a feature
+export fn faces(feature: Feature) -> Query =
+    _clay_query_faces(feature.body)
+
+// edges(feature) - Query all edges of a feature
+export fn edges(feature: Feature) -> Query =
+    _clay_query_edges(feature.body)
+
+// vertices(feature) - Query all vertices of a feature
+export fn vertices(feature: Feature) -> Query =
+    _clay_query_vertices(feature.body)
+
+// =============================================================================
+// TOPOLOGY NAVIGATION
+// =============================================================================
+
+// edges_of(query) - Get edges of face(s) selected by query
+export fn edges_of(face_query: Query) -> Query =
+    _clay_query_edges_of(face_query)
+
+// faces_of(query) - Get faces adjacent to edge(s) selected by query
+export fn faces_of(edge_query: Query) -> Query =
+    _clay_query_faces_of(edge_query)
+
+// =============================================================================
+// DIRECTION FILTERS
+// =============================================================================
+
+// facing(query, direction) - Filter faces by normal direction
+export fn facing(query: Query, direction) -> Query =
+    filter(query, {type = "normal", direction = direction})
+
+// facing_up(query) - Filter faces pointing up (+Z)
+export fn facing_up(query: Query) -> Query =
+    facing(query, [0, 0, 1])
+
+// facing_down(query) - Filter faces pointing down (-Z)
+export fn facing_down(query: Query) -> Query =
+    facing(query, [0, 0, -1])
+
+// =============================================================================
+// POSITION FILTERS
+// =============================================================================
+
+// at_x(query, x) - Filter entities at specific X position
+export fn at_x(query: Query, x: num, tolerance: num = 0.001) -> Query =
+    filter(query, {
+        type = "plane",
+        plane = {origin = [x, 0, 0], normal = [1, 0, 0]},
+        side = "on"
+    })
+
+// at_y(query, y) - Filter entities at specific Y position
+export fn at_y(query: Query, y: num, tolerance: num = 0.001) -> Query =
+    filter(query, {
+        type = "plane",
+        plane = {origin = [0, y, 0], normal = [0, 1, 0]},
+        side = "on"
+    })
+
+// at_z(query, z) - Filter entities at specific Z position
+export fn at_z(query: Query, z: num, tolerance: num = 0.001) -> Query =
+    filter(query, {
+        type = "plane",
+        plane = {origin = [0, 0, z], normal = [0, 0, 1]},
+        side = "on"
+    })
+
+// =============================================================================
+// EDGE FILTERS
+// =============================================================================
+
+// convex_edges(query) - Filter to convex (outside corner) edges
+export fn convex_edges(query: Query) -> Query =
+    filter(query, {type = "convexity", convex = true})
+
+// concave_edges(query) - Filter to concave (inside corner) edges
+export fn concave_edges(query: Query) -> Query =
+    filter(query, {type = "convexity", convex = false})
+
+// outer_edges(query) - Filter to outer boundary edges only
+export fn outer_edges(query: Query) -> Query =
+    filter(query, {type = "edge_type", edge_type = "outer"})
+
+// inner_edges(query) - Filter to inner loop edges only
+export fn inner_edges(query: Query) -> Query =
+    filter(query, {type = "edge_type", edge_type = "inner"})
+
+// along_axis(query, axis) - Filter edges aligned with axis
+export fn along_axis(query: Query, axis) -> Query =
+    filter(query, {type = "axis", axis = axis})
+
+// =============================================================================
+// FACE FILTERS
+// =============================================================================
+
+// planar_faces(query) - Filter to flat faces only
+export fn planar_faces(query: Query) -> Query =
+    filter(query, {type = "geometric", property = "planar"})
+
+// cylindrical_faces(query) - Filter to cylindrical faces only
+export fn cylindrical_faces(query: Query) -> Query =
+    filter(query, {type = "geometric", property = "cylindrical"})
+
+// =============================================================================
+// SET OPERATIONS
+// =============================================================================
+
+// combine(a, b) - Combine two queries (select from both)
+export fn combine(a: Query, b: Query) -> Query =
+    _clay_query_combine(a, b, {op = 1})
+
+// exclude(a, b) - Remove b's selection from a
+export fn exclude(a: Query, b: Query) -> Query =
+    _clay_query_combine(a, b, {op = 2})
+
+// overlap(a, b) - Keep only entities in both queries
+export fn overlap(a: Query, b: Query) -> Query =
+    _clay_query_combine(a, b, {op = 3})
+
+// =============================================================================
+// UTILITIES
+// =============================================================================
+
+// count(query) - Get number of entities in query
+export fn count(query: Query) -> num =
+    _clay_query_count(query)
+
+// is_empty(query) - Check if query selects nothing
+export fn is_empty(query: Query) -> bool =
+    count(query) == 0
+
+// first(query) - Get query selecting only first entity
+export fn first(query: Query) -> Query =
+    _clay_query_first(query)
+
+// last(query) - Get query selecting only last entity
+export fn last(query: Query) -> Query =
+    _clay_query_last(query)

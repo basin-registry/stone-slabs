@@ -1,0 +1,37 @@
+// Clay CAD — Solid modeling for Stone
+// Native kernel wrapping OpenCascade (OCCT) BRep geometry kernel
+
+name = "clay"
+version = "0.2.0"
+entry = "main.stn"
+description = "Full BRep solid modeling with boolean operations, fillets, chamfers, queries, profiles, and mesh extraction"
+
+// Native C/C++ extension — compiled to WASM and LLVM IR from the same source
+// Function exports are derived automatically from .stn import statements.
+// Return types are auto-detected from C function signatures.
+// Naming convention: _clay_box → C symbol stone_clay_box
+extern = {
+  type = "c"
+  name = "clay_kernel"
+  sources = ["kernel/clay_kernel.c", "kernel/occt_wrapper.cpp"]
+
+  // External library dependencies
+  // Native: resolved via pkg-config or system linker paths
+  // WASM: resolved from <DEPNAME>_WASM_ROOT env var (e.g., OPENCASCADE_WASM_ROOT)
+  deps = {
+    opencascade = {
+      native = {
+        libs = ["TKMesh", "TKOffset", "TKFillet", "TKFeat", "TKBool", "TKBO",
+                "TKPrim", "TKTopAlgo", "TKGeomAlgo", "TKShHealing",
+                "TKBRep", "TKGeomBase", "TKG3d", "TKG2d", "TKMath", "TKernel", "stdc++"]
+      }
+      wasm = {
+        libs = ["TKMesh", "TKOffset", "TKFillet", "TKFeat", "TKBool", "TKBO",
+                "TKPrim", "TKTopAlgo", "TKGeomAlgo", "TKShHealing",
+                "TKBRep", "TKGeomBase", "TKG3d", "TKG2d", "TKMath", "TKernel"]
+        include = "include/opencascade"
+        lib = "lin32/clang/lib"
+      }
+    }
+  }
+}
