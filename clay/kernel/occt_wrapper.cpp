@@ -74,6 +74,11 @@
 #include <ShapeAnalysis_Surface.hxx>
 #include <BRepTools.hxx>
 
+/* OCCT headers — 2D geometry (for edge convexity via parametric curves) */
+#include <Geom2d_Curve.hxx>
+#include <gp_Vec2d.hxx>
+#include <gp_Pnt2d.hxx>
+
 /* OCCT headers — Error handling */
 #include <Standard_Failure.hxx>
 
@@ -724,9 +729,8 @@ extern "C" int occt_vertex_position(OcctShape s, int vert_idx,
 
 extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     const TopoDS_Shape& shape = unwrap(s);
-    TopTools_IndexedMapOfShape edgeMap, faceMap;
+    TopTools_IndexedMapOfShape edgeMap;
     build_edge_map(shape, edgeMap);
-    build_face_map(shape, faceMap);
 
     int idx = edge_idx + 1;
     if (idx < 1 || idx > edgeMap.Extent()) return 0;
@@ -745,60 +749,82 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     const TopoDS_Face& face2 = TopoDS::Face(it.Value());
     if (face1.IsSame(face2)) return 0; /* seam edge */
 
-    /* Get edge midpoint parameter */
+    /* Get 3D edge curve and tangent at midpoint */
     double eFirst, eLast;
     Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, eFirst, eLast);
     if (curve.IsNull()) return 0;
     double eMid = (eFirst + eLast) / 2.0;
-    gp_Pnt edgePt = curve->Value(eMid);
+    gp_Pnt edgePt;
+    gp_Vec edgeTan;
+    curve->D1(eMid, edgePt, edgeTan);
+    if (edgeTan.Magnitude() < 1e-10) return 0;
+    edgeTan.Normalize();
 
-    /* Evaluate surface normals of BOTH faces at the edge midpoint.
-     * Project edge midpoint onto each face's surface to get (u,v), then evaluate normal. */
-    auto getNormalAtPoint = [](const TopoDS_Face& face, const gp_Pnt& pt,
-                               gp_Dir& outNormal) -> bool {
+    /* Compute the "inward" direction on each face at the edge midpoint.
+     * Uses the edge's 2D parametric curve on each face to find the direction
+     * perpendicular to the edge that points INTO the face interior (toward material).
+     * This is exact for all surface types (planar, cylindrical, etc.). */
+    auto computeInwardDir = [&](const TopoDS_Face& face) -> gp_Vec {
+        /* Get 2D parametric curve of the edge on this face */
+        double f2d, l2d;
+        Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(edge, face, f2d, l2d);
+        if (c2d.IsNull()) return gp_Vec(0, 0, 0);
+
+        double mid2d = (f2d + l2d) / 2.0;
+        gp_Pnt2d uv;
+        gp_Vec2d tan2d;
+        c2d->D1(mid2d, uv, tan2d);
+        if (tan2d.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
+        tan2d.Normalize();
+
+        /* Determine edge orientation on this face by finding it in the face's topology */
+        bool edgeReversed = false;
+        for (TopExp_Explorer exp(face, TopAbs_EDGE); exp.More(); exp.Next()) {
+            if (exp.Current().IsSame(edge)) {
+                edgeReversed = (exp.Current().Orientation() == TopAbs_REVERSED);
+                break;
+            }
+        }
+
+        /* Boundary traversal direction: flip tangent if edge is reversed on this face */
+        gp_Vec2d bTan = edgeReversed ? gp_Vec2d(-tan2d.X(), -tan2d.Y()) : tan2d;
+
+        /* Inward direction in 2D (perpendicular to boundary, pointing into face interior).
+         * For FORWARD face: interior is LEFT of boundary → rotate 90° CCW = (-y, x)
+         * For REVERSED face: boundary traversal effectively reverses → rotate 90° CW = (y, -x) */
+        gp_Vec2d inward2d;
+        if (face.Orientation() != TopAbs_REVERSED) {
+            inward2d = gp_Vec2d(-bTan.Y(), bTan.X());
+        } else {
+            inward2d = gp_Vec2d(bTan.Y(), -bTan.X());
+        }
+
+        /* Map 2D inward direction to 3D using surface partial derivatives */
         Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
-        if (surf.IsNull()) return false;
+        if (surf.IsNull()) return gp_Vec(0, 0, 0);
+        gp_Pnt p;
+        gp_Vec du, dv;
+        surf->D1(uv.X(), uv.Y(), p, du, dv);
 
-        /* Project point onto surface to get (u,v) parameters */
-        GeomAPI_ProjectPointOnSurf proj(pt, surf);
-        if (proj.NbPoints() < 1) return false;
-        double u, v;
-        proj.LowerDistanceParameters(u, v);
-
-        GeomLProp_SLProps props(surf, u, v, 1, 1e-6);
-        if (!props.IsNormalDefined()) return false;
-
-        outNormal = props.Normal();
-        if (face.Orientation() == TopAbs_REVERSED) outNormal.Reverse();
-        return true;
+        return du * inward2d.X() + dv * inward2d.Y();
     };
 
-    gp_Dir n1, n2;
-    if (!getNormalAtPoint(face1, edgePt, n1)) return 0;
-    if (!getNormalAtPoint(face2, edgePt, n2)) return 0;
+    gp_Vec in1 = computeInwardDir(face1);
+    gp_Vec in2 = computeInwardDir(face2);
 
-    /* Original algorithm but with normals evaluated AT the edge midpoint:
-     * Average the two normals, then check if the average points toward or away
-     * from the material (approximated by the face centers). */
-    double anx = n1.X() + n2.X(), any = n1.Y() + n2.Y(), anz = n1.Z() + n2.Z();
-    double len = sqrt(anx*anx + any*any + anz*anz);
-    if (len < 1e-12) return 0; /* normals cancel out — flat/tangent */
-    anx /= len; any /= len; anz /= len;
+    if (in1.Magnitude() < 1e-10 || in2.Magnitude() < 1e-10) return 0;
+    in1.Normalize();
+    in2.Normalize();
 
-    /* Get face centers for material direction estimate */
-    double c1x, c1y, c1z, c2x, c2y, c2z;
-    if (occt_face_center(s, faceMap.FindIndex(face1) - 1, &c1x, &c1y, &c1z) != 0) return 0;
-    if (occt_face_center(s, faceMap.FindIndex(face2) - 1, &c2x, &c2y, &c2z) != 0) return 0;
+    /* Classify using the signed dihedral angle:
+     * (inward1 × inward2) · edgeTangent encodes the dihedral angle sign.
+     * Negative → convex (outside corner, box edges)
+     * Positive → concave (inside corner, hole edges) */
+    gp_Vec cross = in1.Crossed(in2);
+    double det = cross.Dot(edgeTan);
 
-    /* Vector from edge midpoint toward average face center (into material) */
-    double mx = (c1x + c2x) / 2.0 - edgePt.X();
-    double my = (c1y + c2y) / 2.0 - edgePt.Y();
-    double mz = (c1z + c2z) / 2.0 - edgePt.Z();
-
-    /* If avg normal points AWAY from material center → convex */
-    double dot = anx * mx + any * my + anz * mz;
-    if (dot < -1e-6) return 1;   /* convex */
-    if (dot > 1e-6) return -1;   /* concave */
+    if (det < -1e-6) return 1;   /* convex */
+    if (det > 1e-6) return -1;   /* concave */
     return 0;                     /* flat / tangent */
 }
 
