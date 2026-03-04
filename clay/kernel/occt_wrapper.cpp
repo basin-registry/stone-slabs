@@ -79,6 +79,9 @@
 #include <gp_Vec2d.hxx>
 #include <gp_Pnt2d.hxx>
 
+/* OCCT headers — Solid classification (for edge convexity) */
+#include <BRepClass3d_SolidClassifier.hxx>
+
 /* OCCT headers — Error handling */
 #include <Standard_Failure.hxx>
 
@@ -749,83 +752,71 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     const TopoDS_Face& face2 = TopoDS::Face(it.Value());
     if (face1.IsSame(face2)) return 0; /* seam edge */
 
-    /* Get 3D edge curve and tangent at midpoint */
+    /* Get 3D edge curve and point at midpoint */
     double eFirst, eLast;
     Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, eFirst, eLast);
     if (curve.IsNull()) return 0;
     double eMid = (eFirst + eLast) / 2.0;
-    gp_Pnt edgePt;
-    gp_Vec edgeTan;
-    curve->D1(eMid, edgePt, edgeTan);
-    if (edgeTan.Magnitude() < 1e-10) return 0;
-    edgeTan.Normalize();
+    gp_Pnt edgePt = curve->Value(eMid);
 
-    /* Compute the "inward" direction on each face at the edge midpoint.
-     * Uses the edge's 2D parametric curve on each face to find the direction
-     * perpendicular to the edge that points INTO the face interior (toward material).
-     * This is exact for all surface types (planar, cylindrical, etc.). */
-    auto computeInwardDir = [&](const TopoDS_Face& face) -> gp_Vec {
-        /* Get 2D parametric curve of the edge on this face */
-        double f2d, l2d;
-        Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(edge, face, f2d, l2d);
-        if (c2d.IsNull()) return gp_Vec(0, 0, 0);
-
-        double mid2d = (f2d + l2d) / 2.0;
-        gp_Pnt2d uv;
-        gp_Vec2d tan2d;
-        c2d->D1(mid2d, uv, tan2d);
-        if (tan2d.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
-        tan2d.Normalize();
-
-        /* Determine edge orientation on this face by finding it in the face's topology */
-        bool edgeReversed = false;
-        for (TopExp_Explorer exp(face, TopAbs_EDGE); exp.More(); exp.Next()) {
-            if (exp.Current().IsSame(edge)) {
-                edgeReversed = (exp.Current().Orientation() == TopAbs_REVERSED);
-                break;
-            }
-        }
-
-        /* Boundary traversal direction: flip tangent if edge is reversed on this face */
-        gp_Vec2d bTan = edgeReversed ? gp_Vec2d(-tan2d.X(), -tan2d.Y()) : tan2d;
-
-        /* Inward direction in 2D (perpendicular to boundary, pointing into face interior).
-         * For FORWARD face: interior is LEFT of boundary → rotate 90° CCW = (-y, x)
-         * For REVERSED face: boundary traversal effectively reverses → rotate 90° CW = (y, -x) */
-        gp_Vec2d inward2d;
-        if (face.Orientation() != TopAbs_REVERSED) {
-            inward2d = gp_Vec2d(-bTan.Y(), bTan.X());
-        } else {
-            inward2d = gp_Vec2d(bTan.Y(), -bTan.X());
-        }
-
-        /* Map 2D inward direction to 3D using surface partial derivatives */
+    /* Compute outward-pointing face normal at edge midpoint for each face.
+     * Project edge point onto each face's surface to get UV, then use
+     * partial derivatives to compute normal with correct orientation. */
+    auto computeOutwardNormal = [&](const TopoDS_Face& face) -> gp_Vec {
         Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
         if (surf.IsNull()) return gp_Vec(0, 0, 0);
+
+        /* Project point onto surface to get UV coordinates */
+        ShapeAnalysis_Surface sas(surf);
+        gp_Pnt2d uv = sas.ValueOfUV(edgePt, 1e-4);
+
         gp_Pnt p;
         gp_Vec du, dv;
         surf->D1(uv.X(), uv.Y(), p, du, dv);
+        gp_Vec normal = du.Crossed(dv);
+        if (normal.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
+        normal.Normalize();
 
-        return du * inward2d.X() + dv * inward2d.Y();
+        /* Flip if face orientation is REVERSED — makes normal point outward from solid */
+        if (face.Orientation() == TopAbs_REVERSED) {
+            normal.Reverse();
+        }
+
+        return normal;
     };
 
-    gp_Vec in1 = computeInwardDir(face1);
-    gp_Vec in2 = computeInwardDir(face2);
+    gp_Vec n1 = computeOutwardNormal(face1);
+    gp_Vec n2 = computeOutwardNormal(face2);
+    if (n1.Magnitude() < 1e-10 || n2.Magnitude() < 1e-10) return 0;
 
-    if (in1.Magnitude() < 1e-10 || in2.Magnitude() < 1e-10) return 0;
-    in1.Normalize();
-    in2.Normalize();
+    /* Offset test point along the average of the two face normals.
+     * If the edge is convex, this point will be OUTSIDE the solid.
+     * If concave, it will be INSIDE. */
+    gp_Vec avgN(n1.X() + n2.X(), n1.Y() + n2.Y(), n1.Z() + n2.Z());
+    if (avgN.Magnitude() < 1e-10) return 0; /* normals cancel = flat */
+    avgN.Normalize();
 
-    /* Classify using the signed dihedral angle:
-     * (inward1 × inward2) · edgeTangent encodes the dihedral angle sign.
-     * Negative → convex (outside corner, box edges)
-     * Positive → concave (inside corner, hole edges) */
-    gp_Vec cross = in1.Crossed(in2);
-    double det = cross.Dot(edgeTan);
+    double eps = 1e-4;
+    gp_Pnt testPt(edgePt.X() + eps * avgN.X(),
+                   edgePt.Y() + eps * avgN.Y(),
+                   edgePt.Z() + eps * avgN.Z());
 
-    if (det < -1e-6) return 1;   /* convex */
-    if (det > 1e-6) return -1;   /* concave */
-    return 0;                     /* flat / tangent */
+    /* Find the solid to classify against. Shape may be compound after booleans. */
+    TopoDS_Solid solid;
+    bool foundSolid = false;
+    for (TopExp_Explorer exp(shape, TopAbs_SOLID); exp.More(); exp.Next()) {
+        solid = TopoDS::Solid(exp.Current());
+        foundSolid = true;
+        break;
+    }
+    if (!foundSolid) return 0;
+
+    BRepClass3d_SolidClassifier classifier(solid, testPt, 1e-6);
+    TopAbs_State state = classifier.State();
+
+    if (state == TopAbs_OUT) return 1;   /* convex — test point outside solid */
+    if (state == TopAbs_IN)  return -1;  /* concave — test point inside solid */
+    return 0;                             /* on boundary / indeterminate */
 }
 
 extern "C" int occt_faces_of_edge(OcctShape s, int edge_idx,
