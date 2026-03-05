@@ -1,0 +1,264 @@
+// analysis.stn - Time-Domain Analysis
+// Provides step response, impulse response, and general simulation functions
+//
+// Usage: import step, impulse, lsim from dynamics/analysis
+
+import linspace from array
+import rk4 from dynamics/ode
+import tf2ss, is_continuous, order from dynamics/systems
+import zeros as _zeros from primitives
+
+// =============================================================================
+// HELPER FUNCTIONS (defined first for type inference)
+// =============================================================================
+
+// Get row i of matrix A
+fn get_row(A, i) {
+    return(A[i])
+}
+
+// Get column j of matrix A - returns 1D array of numbers
+fn get_col(A, j) {
+    m = len(A)  // Number of rows
+    result = evolve { c = [], i = 0 } while (i < m) {
+        c' = push(c, A[i][j])
+        i' = i + 1
+    }
+    return(result.c)
+}
+
+// Vector dot product
+fn vec_dot(a, b) {
+    vec_len = len(a)
+    result = evolve { acc = 0, i = 0 } while (i < vec_len) {
+        acc' = acc + a[i] * b[i]
+        i' = i + 1
+    }
+    return(result.acc)
+}
+
+// Vector addition: a + b
+fn vec_add(a, b) {
+    vec_len = len(a)
+    result = evolve { r = [], i = 0 } while (i < vec_len) {
+        r' = push(r, a[i] + b[i])
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Scalar-vector multiplication: s * v
+fn scalar_vec_mul(s, v) {
+    vec_len = len(v)
+    result = evolve { r = [], i = 0 } while (i < vec_len) {
+        r' = push(r, s * v[i])
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Matrix-vector multiplication: A @ x
+fn mat_vec_mul(A, x) {
+    m = len(A)  // Number of rows
+    result = evolve { r = [], i = 0 } while (i < m) {
+        row_i = get_row(A, i)
+        val = vec_dot(row_i, x)
+        r' = push(r, val)
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Matrix-vector add: element-wise add of vectors
+fn mat_vec_add(v1, v2) {
+    return(vec_add(v1, v2))
+}
+
+// Convert any system to state-space
+// Note: tf2ss already handles non-TF systems by returning them unchanged
+fn to_ss(sys) {
+    return(tf2ss(sys))
+}
+
+// =============================================================================
+// STEP RESPONSE
+// =============================================================================
+
+// Compute unit step response of system
+// Returns { t, y } where y is the output over time t
+export fn step(sys, t) {
+    ss_sys = to_ss(sys)
+    sys_order = order(ss_sys)
+    x0 = _zeros(sys_order)
+    A = ss_sys.A
+    B = ss_sys.B
+    C = ss_sys.C
+    D = ss_sys.D
+
+    fn state_deriv(t_val, x) {
+        Ax = mat_vec_mul(A, x)
+        Bu = get_col(B, 0)
+        return(vec_add(Ax, Bu))
+    }
+
+    sol = rk4(state_deriv, x0, t)
+
+    n_t = len(t)
+    y_loop = evolve { y = [], i = 0 } while (i < n_t) {
+        x_i = sol.y[i]
+        y_val = vec_dot(get_row(C, 0), x_i) + D[0][0]
+        y' = push(y, y_val)
+        i' = i + 1
+    }
+
+    return({ t = t, y = y_loop.y })
+}
+
+// =============================================================================
+// IMPULSE RESPONSE
+// =============================================================================
+
+// Compute impulse response of system
+// Returns { t, y } where y is the output over time t
+export fn impulse(sys, t) {
+    ss_sys = to_ss(sys)
+    sys_order = order(ss_sys)
+    A = ss_sys.A
+    B = ss_sys.B
+    C = ss_sys.C
+    D = ss_sys.D
+
+    x0 = get_col(B, 0)
+
+    fn state_deriv(t_val, x) {
+        return(mat_vec_mul(A, x))
+    }
+
+    sol = rk4(state_deriv, x0, t)
+
+    n_t = len(t)
+    y_loop = evolve { y = [], i = 0 } while (i < n_t) {
+        x_i = sol.y[i]
+        y_val = vec_dot(get_row(C, 0), x_i)
+        y' = push(y, y_val)
+        i' = i + 1
+    }
+
+    return({ t = t, y = y_loop.y })
+}
+
+// =============================================================================
+// LINEAR SIMULATION
+// =============================================================================
+
+// Simulate system response to arbitrary input signal u
+// Returns { t, y, x } with output y and state trajectory x
+export fn lsim(sys, u, t, x0) {
+    ss_sys = to_ss(sys)
+    n = order(ss_sys)
+    A = ss_sys.A
+    B = ss_sys.B
+    C = ss_sys.C
+    D = ss_sys.D
+
+    init_x = if (n == 0) { return([]) } else { return(x0) }
+
+    n_t = len(t)
+    sim = evolve { x = init_x, y_arr = [], x_arr = [], i = 0 } while (i < n_t) {
+        u_i = u[i]
+        y_i = vec_dot(get_row(C, 0), x) + D[0][0] * u_i
+        y_arr' = push(y_arr, y_i)
+        x_arr' = push(x_arr, x)
+
+        x' = if (i < n_t - 1) {
+            dt = t[i + 1] - t[i]
+            dx = mat_vec_add(mat_vec_mul(A, x), scalar_vec_mul(u_i, get_col(B, 0)))
+            return(vec_add(x, scalar_vec_mul(dt, dx)))
+        } else { return(x) }
+
+        i' = i + 1
+    }
+
+    return({ t = t, y = sim.y_arr, x = sim.x_arr })
+}
+
+// =============================================================================
+// INITIAL CONDITION RESPONSE
+// =============================================================================
+
+// Compute unforced response from initial state x0
+// Returns { t, y } with zero input applied
+export fn initial(sys, x0, t) {
+    ss_sys = to_ss(sys)
+    A = ss_sys.A
+    C = ss_sys.C
+
+    fn state_deriv(t_val, x) {
+        return(mat_vec_mul(A, x))
+    }
+
+    sol = rk4(state_deriv, x0, t)
+
+    n_t = len(t)
+    y_loop = evolve { y = [], i = 0 } while (i < n_t) {
+        x_i = sol.y[i]
+        y_val = vec_dot(get_row(C, 0), x_i)
+        y' = push(y, y_val)
+        i' = i + 1
+    }
+
+    return({ t = t, y = y_loop.y })
+}
+
+// =============================================================================
+// STEP INFO
+// =============================================================================
+
+// Compute step response characteristics
+// Returns { rise_time, settling_time, overshoot, peak, peak_time, steady_state }
+export fn step_info(sys, t) {
+    resp = step(sys, t)
+    y = resp.y
+    n = len(y)
+    ss_val = y[n - 1]
+
+    peak_loop = evolve { peak = y[0], peak_idx = 0, i = 1 } while (i < n) {
+        peak' = if (y[i] > peak) { return(y[i]) } else { return(peak) }
+        peak_idx' = if (y[i] > peak) { return(i) } else { return(peak_idx) }
+        i' = i + 1
+    }
+    peak_val = peak_loop.peak
+    peak_time = t[peak_loop.peak_idx]
+
+    overshoot = if (ss_val != 0) {
+        return((peak_val - ss_val) / ss_val * 100)
+    } else { return(0) }
+
+    y_10 = 0.1 * ss_val
+    y_90 = 0.9 * ss_val
+
+    rise_loop = evolve { t_10 = 0, t_90 = 0, found_10 = false, found_90 = false, i = 0 } while (i < n) {
+        t_10' = if (!found_10 && y[i] >= y_10) { return(t[i]) } else { return(t_10) }
+        found_10' = if (!found_10 && y[i] >= y_10) { return(true) } else { return(found_10) }
+        t_90' = if (!found_90 && y[i] >= y_90) { return(t[i]) } else { return(t_90) }
+        found_90' = if (!found_90 && y[i] >= y_90) { return(true) } else { return(found_90) }
+        i' = i + 1
+    }
+    rise_time = rise_loop.t_90 - rise_loop.t_10
+
+    tolerance = 0.02 * abs(ss_val)
+    settle_loop = evolve { settle_t = t[n - 1], i = n - 1 } while (i >= 0) {
+        settled = abs(y[i] - ss_val) <= tolerance
+        settle_t' = if (settled) { return(t[i]) } else { return(settle_t) }
+        i' = if (settled) { return(i - 1) } else { return(-1) }
+    }
+
+    return({
+        rise_time = rise_time,
+        settling_time = settle_loop.settle_t,
+        overshoot = overshoot,
+        peak = peak_val,
+        peak_time = peak_time,
+        steady_state = ss_val
+    })
+}

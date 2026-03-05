@@ -1,0 +1,479 @@
+// discrete.stn - Discrete-Time Operations
+// Provides discretization, continuous conversion, and discrete simulation
+//
+// Usage: import c2d, d2c, dlsim from dynamics/discrete
+
+import tf2ss, ss2tf, order, dss, dtf from dynamics/systems
+import inv, eye, expm from linalg
+import sqrt from math
+import zeros as _zeros from primitives
+import shape as _shape from primitives
+
+// =============================================================================
+// CONTINUOUS TO DISCRETE CONVERSION
+// =============================================================================
+
+// c2d(sys, Ts, method) - Convert continuous to discrete
+// sys: continuous-time system (tf or ss)
+// Ts: sample time
+// method: "zoh", "tustin", "forward", "backward"
+// Returns: discrete-time system
+export fn c2d(sys, Ts, method) {
+    method_name = method
+
+    // Convert to state-space for conversion
+    ss_sys = if (sys.sys_type == "tf") {
+        return(tf2ss(sys))
+    } else {
+        return(sys)
+    }
+
+    return(if (method_name == "zoh") {
+        return(c2d_zoh(ss_sys, Ts))
+    } elif (method_name == "tustin") {
+        return(c2d_tustin(ss_sys, Ts))
+    } elif (method_name == "forward") {
+        return(c2d_forward(ss_sys, Ts))
+    } elif (method_name == "backward") {
+        return(c2d_backward(ss_sys, Ts))
+    } else {
+        return(c2d_zoh(ss_sys, Ts))
+    })
+}
+
+// Zero-order hold discretization
+// Ad = expm(A*Ts)
+// Bd = A^(-1) * (Ad - I) * B  (if A invertible)
+// Or Bd = integral_0^Ts expm(A*tau) * B dtau
+fn c2d_zoh(sys, Ts) {
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+    n = order(sys)
+
+    // Ad = expm(A * Ts)
+    A_scaled = mat_scalar_mul(A, Ts)
+    Ad = expm(A_scaled)
+
+    // For Bd, use the augmented matrix method:
+    // expm([A*Ts, B*Ts; 0, 0]) = [Ad, Bd; 0, I]
+    // This works even when A is singular
+    Bd = compute_Bd_zoh(A, B, Ts, n)
+
+    return(dss(Ad, Bd, C, D, Ts))
+}
+
+// Compute Bd for ZOH using series approximation
+fn compute_Bd_zoh(A, B, Ts, n) {
+    // Bd = sum_{k=0}^{inf} (A*Ts)^k / (k+1)! * B * Ts
+    // Approximate with enough terms
+    n_terms = 20
+    s = _shape(B)
+    m = s[1]  // number of inputs
+
+    // Initialize Bd = B * Ts (k=0 term)
+    Bd = mat_scalar_mul(B, Ts)
+
+    // A^k * Ts^(k+1) / (k+1)!
+    A_power = eye(n)  // A^0 = I
+    factorial = 1
+
+    result = evolve { Bd_acc = Bd, A_pow = A_power, fact = factorial, k = 1 } while (k < n_terms) {
+        // A^k
+        A_pow' = mat_mul(A_pow, A)
+        fact' = fact * (k + 1)
+
+        // (A*Ts)^k / (k+1)! * B * Ts = A^k * B * Ts^(k+1) / (k+1)!
+        coeff = (Ts ^ (k + 1)) / fact'
+        term = mat_scalar_mul(mat_mul(A_pow', B), coeff)
+        Bd_acc' = mat_add(Bd_acc, term)
+
+        k' = k + 1
+    }
+
+    return(result.Bd_acc)
+}
+
+// Tustin (bilinear) discretization
+// s = (2/Ts) * (z-1)/(z+1)
+fn c2d_tustin(sys, Ts) {
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+    n = order(sys)
+
+    // Ad = (I + A*Ts/2) * inv(I - A*Ts/2)
+    // Bd = sqrt(Ts) * inv(I - A*Ts/2) * B
+    // Cd = sqrt(Ts) * C * inv(I - A*Ts/2)
+    // Dd = D + (Ts/2) * C * inv(I - A*Ts/2) * B
+
+    I_n = eye(n)
+    A_half = mat_scalar_mul(A, Ts / 2)
+
+    I_plus = mat_add(I_n, A_half)
+    I_minus = mat_sub(I_n, A_half)
+    I_minus_inv = inv(I_minus)
+
+    Ad = mat_mul(I_plus, I_minus_inv)
+    Bd = mat_scalar_mul(mat_mul(I_minus_inv, B), sqrt(Ts))
+    Cd = mat_scalar_mul(mat_mul(C, I_minus_inv), sqrt(Ts))
+    Dd = mat_add(D, mat_scalar_mul(mat_mul(mat_mul(C, I_minus_inv), B), Ts / 2))
+
+    return(dss(Ad, Bd, Cd, Dd, Ts))
+}
+
+// Forward Euler discretization
+// Ad = I + A*Ts, Bd = B*Ts
+fn c2d_forward(sys, Ts) {
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+    n = order(sys)
+
+    Ad = mat_add(eye(n), mat_scalar_mul(A, Ts))
+    Bd = mat_scalar_mul(B, Ts)
+
+    return(dss(Ad, Bd, C, D, Ts))
+}
+
+// Backward Euler discretization
+// Ad = inv(I - A*Ts), Bd = Ad * B * Ts
+fn c2d_backward(sys, Ts) {
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+    n = order(sys)
+
+    I_minus_AT = mat_sub(eye(n), mat_scalar_mul(A, Ts))
+    Ad = inv(I_minus_AT)
+    Bd = mat_scalar_mul(mat_mul(Ad, B), Ts)
+
+    return(dss(Ad, Bd, C, D, Ts))
+}
+
+// =============================================================================
+// DISCRETE TO CONTINUOUS CONVERSION
+// =============================================================================
+
+// d2c(sys, method) - Convert discrete to continuous
+// method: "zoh", "tustin"
+export fn d2c(sys, method) {
+    method_name = method
+
+    return(if (method_name == "tustin") {
+        return(d2c_tustin(sys))
+    } else {
+        return(d2c_zoh(sys))
+    })
+}
+
+// ZOH conversion: A = logm(Ad) / Ts
+// This is approximate - uses matrix logarithm
+fn d2c_zoh(sys) {
+    Ad = sys.A
+    Bd = sys.B
+    C = sys.C
+    D = sys.D
+    Ts = sys.Ts
+    n = order(sys)
+
+    // A = log(Ad) / Ts using series: log(I + X) = X - X^2/2 + X^3/3 - ...
+    // where X = Ad - I
+    X = mat_sub(Ad, eye(n))
+    A = mat_scalar_mul(logm_series(X, 20), 1 / Ts)
+
+    // B = A * inv(Ad - I) * Bd (if invertible)
+    // Approximate: B = Bd / Ts for small Ts
+    B = mat_scalar_mul(Bd, 1 / Ts)
+
+    return({
+        sys_type = "ss",
+        A = A,
+        B = B,
+        C = C,
+        D = D,
+        Ts = 0  // Continuous
+    })
+}
+
+// Matrix logarithm using series approximation
+fn logm_series(X, n_terms) {
+    // log(I + X) = X - X^2/2 + X^3/3 - X^4/4 + ...
+    s = _shape(X)
+    n = s[0]
+
+    result = evolve { acc = zeros_mat(n, n), X_pow = X, k = 1 } while (k <= n_terms) {
+        sign = if (k % 2 == 1) { return(1) } else { return(-1) }
+        term = mat_scalar_mul(X_pow, sign / k)
+        acc' = mat_add(acc, term)
+        X_pow' = mat_mul(X_pow, X)
+        k' = k + 1
+    }
+
+    return(result.acc)
+}
+
+// Tustin inverse
+fn d2c_tustin(sys) {
+    Ad = sys.A
+    Bd = sys.B
+    C = sys.C
+    D = sys.D
+    Ts = sys.Ts
+    n = order(sys)
+
+    // Inverse of Tustin: s = (2/Ts) * (z-1)/(z+1)
+    // A = (2/Ts) * (Ad - I) * inv(Ad + I)
+    I_n = eye(n)
+    Ad_minus_I = mat_sub(Ad, I_n)
+    Ad_plus_I = mat_add(Ad, I_n)
+    Ad_plus_I_inv = inv(Ad_plus_I)
+
+    A = mat_scalar_mul(mat_mul(Ad_minus_I, Ad_plus_I_inv), 2 / Ts)
+    B = mat_scalar_mul(mat_mul(Ad_plus_I_inv, Bd), sqrt(Ts) * 2)
+    Cc = mat_scalar_mul(mat_mul(C, Ad_plus_I_inv), sqrt(Ts) * 2)
+
+    return({
+        sys_type = "ss",
+        A = A,
+        B = B,
+        C = Cc,
+        D = D,
+        Ts = 0
+    })
+}
+
+// =============================================================================
+// DISCRETE SIMULATION
+// =============================================================================
+
+// dlsim(sys, u, x0) - Simulate discrete system
+// sys: discrete-time state-space or transfer function
+// u: input sequence (array)
+// x0: initial state (array of zeros for zero initial conditions)
+// Returns: { y, x } output and state sequences
+export fn dlsim(sys, u, x0) {
+    ss_sys = if (sys.sys_type == "tf" || sys.sys_type == "dtf") {
+        return(tf2ss(sys))
+    } else {
+        return(sys)
+    }
+
+    A = ss_sys.A
+    B = ss_sys.B
+    C = ss_sys.C
+    D = ss_sys.D
+    n = order(ss_sys)
+    n_u = len(u)
+
+    // Initial state (passed in directly)
+    x = x0
+
+    // Simulate: x[k+1] = A*x[k] + B*u[k], y[k] = C*x[k] + D*u[k]
+    sim = evolve { x_curr = x, y_arr = [], x_arr = [], k = 0 } while (k < n_u) {
+        // Output
+        y_k = vec_dot(get_row(C, 0), x_curr) + D[0][0] * u[k]
+        y_arr' = push(y_arr, y_k)
+        x_arr' = push(x_arr, x_curr)
+
+        // State update
+        x_curr' = vec_add(mat_vec_mul(A, x_curr), scalar_vec_mul(u[k], get_col(B, 0)))
+        k' = k + 1
+    }
+
+    return({ y = sim.y_arr, x = sim.x_arr })
+}
+
+// =============================================================================
+// DISCRETE STEP RESPONSE
+// =============================================================================
+
+// dstep(sys, n) - Discrete step response
+// n: number of samples
+export fn dstep(sys, n) {
+    // Unit step input
+    u_loop = evolve { u = [], i = 0 } while (i < n) {
+        u' = push(u, 1)
+        i' = i + 1
+    }
+
+    // Zero initial state
+    sys_order = order(sys)
+    x0 = _zeros(sys_order)
+
+    resp = dlsim(sys, u_loop.u, x0)
+    return({ n = n, y = resp.y, x = resp.x })
+}
+
+// =============================================================================
+// DISCRETE IMPULSE RESPONSE
+// =============================================================================
+
+// dimpulse(sys, n) - Discrete impulse response
+// n: number of samples
+export fn dimpulse(sys, n) {
+    // Unit impulse: [1, 0, 0, ...]
+    u_loop = evolve { u = [], i = 0 } while (i < n) {
+        val = if (i == 0) { return(1) } else { return(0) }
+        u' = push(u, val)
+        i' = i + 1
+    }
+
+    // Zero initial state
+    sys_order = order(sys)
+    x0 = _zeros(sys_order)
+
+    resp = dlsim(sys, u_loop.u, x0)
+    return({ n = n, y = resp.y, x = resp.x })
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// Matrix scalar multiplication
+fn mat_scalar_mul(A, s) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] * s)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix addition
+fn mat_add(A, B) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] + B[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix subtraction
+fn mat_sub(A, B) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] - B[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix multiplication
+fn mat_mul(A, B) {
+    sh_a = _shape(A)
+    sh_b = _shape(B)
+    m = sh_a[0]
+    k = sh_a[1]
+    n = sh_b[1]
+
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            // Dot product of row i of A with column j of B
+            dot_loop = evolve { acc = 0, l = 0 } while (l < k) {
+                acc' = acc + A[i][l] * B[l][j]
+                l' = l + 1
+            }
+            row' = push(row, dot_loop.acc)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix-vector multiplication
+fn mat_vec_mul(A, x) {
+    sh = _shape(A)
+    m = sh[0]
+    result = evolve { r = [], i = 0 } while (i < m) {
+        val = vec_dot(A[i], x)
+        r' = push(r, val)
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Vector dot product
+fn vec_dot(a, b) {
+    n = len(a)
+    result = evolve { acc = 0, i = 0 } while (i < n) {
+        acc' = acc + a[i] * b[i]
+        i' = i + 1
+    }
+    return(result.acc)
+}
+
+// Vector addition
+fn vec_add(a, b) {
+    n = len(a)
+    result = evolve { r = [], i = 0 } while (i < n) {
+        r' = push(r, a[i] + b[i])
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Scalar-vector multiplication
+fn scalar_vec_mul(s, v) {
+    n = len(v)
+    result = evolve { r = [], i = 0 } while (i < n) {
+        r' = push(r, s * v[i])
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Get row from matrix
+fn get_row(A, i) {
+    return(A[i])
+}
+
+// Get column from matrix
+fn get_col(A, j) {
+    sh = _shape(A)
+    m = sh[0]
+    result = evolve { c = [], i = 0 } while (i < m) {
+        c' = push(c, A[i][j])
+        i' = i + 1
+    }
+    return(result.c)
+}
+
+// Create zero matrix
+fn zeros_mat(m, n) {
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, 0)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}

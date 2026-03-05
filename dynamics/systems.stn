@@ -1,0 +1,709 @@
+// systems.stn - Dynamic System Representations
+// Provides state-space and transfer function representations for control systems
+//
+// Usage: import ss, tf, poles, is_stable from dynamics/systems
+
+// Import from linalg for matrix operations
+import eigvals from linalg
+import zeros as _zeros from primitives
+import eye as _eye from primitives
+import shape as _shape from primitives
+import rank as _rank from primitives
+
+// Import polynomial operations
+import polyval as _eval from dynamics/poly
+import polymul as _polymul from dynamics/poly
+import roots as _roots from dynamics/poly
+
+// Import complex number operations
+import Complex, complex as _complex, abs from complex
+// Access real/imag parts directly via .re and .im
+
+// =============================================================================
+// SYSTEM CONSTRUCTORS
+// =============================================================================
+
+// ss(A, B, C, D) - Create a continuous-time state-space system
+// x' = A*x + B*u
+// y  = C*x + D*u
+// Returns: { type = "ss", A, B, C, D, Ts = 0 }
+// Ts = 0 indicates continuous-time
+export fn ss(A, B, C, D) {
+    return({
+        sys_type = "ss",
+        A = A,
+        B = B,
+        C = C,
+        D = D,
+        Ts = 0
+    })
+}
+
+// dss(A, B, C, D, Ts) - Create a discrete-time state-space system
+// x[k+1] = A*x[k] + B*u[k]
+// y[k]   = C*x[k] + D*u[k]
+// Returns: { type = "ss", A, B, C, D, Ts }
+export fn dss(A, B, C, D, Ts) {
+    return({
+        sys_type = "ss",
+        A = A,
+        B = B,
+        C = C,
+        D = D,
+        Ts = Ts
+    })
+}
+
+// tf(num, den) - Create a continuous-time transfer function
+// H(s) = num(s) / den(s)
+// num and den are coefficient arrays [highest power, ..., constant]
+// Returns: { type = "tf", num, den, Ts = 0 }
+export fn tf(num, den) {
+    return({
+        sys_type = "tf",
+        num = num,
+        den = den,
+        Ts = 0
+    })
+}
+
+// dtf(num, den, Ts) - Create a discrete-time transfer function
+// H(z) = num(z) / den(z)
+// Returns: { type = "tf", num, den, Ts }
+export fn dtf(num, den, Ts) {
+    return({
+        sys_type = "tf",
+        num = num,
+        den = den,
+        Ts = Ts
+    })
+}
+
+// zpk(z, p, k) - Create a zero-pole-gain system (continuous-time)
+// H(s) = k * prod(s - z_i) / prod(s - p_i)
+// z = zeros (array of complex), p = poles (array of complex), k = gain
+// Returns: { type = "zpk", zeros, poles, gain, Ts = 0 }
+export fn zpk(z, p, k) {
+    return({
+        sys_type = "zpk",
+        z = z,
+        p = p,
+        k = k,
+        Ts = 0
+    })
+}
+
+// dzpk(z, p, k, Ts) - Create a discrete-time zero-pole-gain system
+export fn dzpk(z, p, k, Ts) {
+    return({
+        sys_type = "zpk",
+        z = z,
+        p = p,
+        k = k,
+        Ts = Ts
+    })
+}
+
+// =============================================================================
+// SYSTEM PROPERTIES
+// =============================================================================
+
+// order(sys) - Get the order (number of states) of a system
+export fn order(sys) {
+    return(if (sys.sys_type == "ss") {
+        s = _shape(sys.A)
+        return(s[0])
+    } elif (sys.sys_type == "tf") {
+        // Order is degree of denominator
+        return(len(sys.den) - 1)
+    } elif (sys.sys_type == "zpk") {
+        // Order is number of poles
+        return(len(sys.p))
+    } else {
+        return(0)
+    })
+}
+
+// is_continuous(sys) - Check if system is continuous-time
+export fn is_continuous(sys) {
+    return(sys.Ts == 0)
+}
+
+// is_discrete(sys) - Check if system is discrete-time
+export fn is_discrete(sys) {
+    return(sys.Ts != 0)
+}
+
+// =============================================================================
+// POLE AND ZERO ANALYSIS
+// =============================================================================
+
+// poles(sys) - Get the poles of a system
+// Returns array of complex eigenvalues
+export fn poles(sys) {
+    // Type-annotate for consistent complex return(type)
+    emptyPoles: array<Complex,1> = []
+    return(if (sys.sys_type == "ss") {
+        // Poles are eigenvalues of A matrix
+        return(eigvals(sys.A))
+    } elif (sys.sys_type == "tf") {
+        // Poles are roots of denominator polynomial
+        return(_roots(sys.den))
+    } elif (sys.sys_type == "zpk") {
+        // Poles are directly available (already complex)
+        return(sys.p)
+    } else {
+        return(emptyPoles)
+    })
+}
+
+// zeros(sys) - Get the zeros of a system
+// Returns array of complex zeros
+export fn zeros(sys) {
+    // Type-annotate for consistent complex return(type)
+    emptyZeros: array<Complex,1> = []
+    return(if (sys.sys_type == "ss") {
+        // For SISO: zeros are where C*(sI-A)^(-1)*B + D = 0
+        // This requires solving a generalized eigenvalue problem
+        // Simplified: use transfer function conversion
+        tf_sys = ss2tf(sys)
+        return(_roots(tf_sys.num))
+    } elif (sys.sys_type == "tf") {
+        // Zeros are roots of numerator polynomial
+        return(_roots(sys.num))
+    } elif (sys.sys_type == "zpk") {
+        // Zeros are directly available (already complex)
+        return(sys.z)
+    } else {
+        return(emptyZeros)
+    })
+}
+
+// =============================================================================
+// STABILITY ANALYSIS
+// =============================================================================
+
+// is_stable(sys) - Check if system is stable
+// Continuous: all poles have negative real parts
+// Discrete: all poles have magnitude < 1
+export fn is_stable(sys) {
+    p = poles(sys)
+    n = len(p)
+    is_cont = is_continuous(sys)
+
+    loop = evolve { stable = true, i = 0 } while (i < n && stable) {
+        pole = p[i]
+        test = if (is_cont) {
+            return(pole.re < 0)
+        } else {
+            return(abs(pole) < 1)
+        }
+        stable' = test
+        i' = i + 1
+    }
+    return(loop.stable)
+}
+
+// =============================================================================
+// GAIN ANALYSIS
+// =============================================================================
+
+// dcgain(sys) - DC gain (steady-state gain)
+// Continuous: H(0) = C * (-A)^(-1) * B + D or num(0)/den(0)
+// Discrete: H(1) for z-domain
+export fn dcgain(sys) {
+    return(if (sys.sys_type == "tf") {
+        return(if (is_continuous(sys)) {
+            // H(0) = num evaluated at s=0 / den evaluated at s=0
+            // Polynomials are [high..low], so constant term is last element
+            num_dc = sys.num[len(sys.num) - 1]
+            den_dc = sys.den[len(sys.den) - 1]
+            return(if (den_dc == 0) {
+                return(1/0  // Infinity)
+            } else {
+                return(num_dc / den_dc)
+            })
+        } else {
+            // H(1) for discrete-time
+            num_sum = _eval(sys.num, [1])[0]
+            den_sum = _eval(sys.den, [1])[0]
+            return(if (den_sum == 0) {
+                return(1/0)
+            } else {
+                return(num_sum / den_sum)
+            })
+        })
+    } elif (sys.sys_type == "ss") {
+        // DC gain = -C * A^(-1) * B + D
+        // For SISO, this is a scalar
+        // Simplified: convert to tf first
+        tf_sys = ss2tf(sys)
+        return(dcgain(tf_sys))
+    } elif (sys.sys_type == "zpk") {
+        // Convert to tf first
+        tf_sys = zpk2tf(sys)
+        return(dcgain(tf_sys))
+    } else {
+        return(0)
+    })
+}
+
+// =============================================================================
+// SYSTEM CONVERSIONS
+// =============================================================================
+
+// tf2ss(sys) - Convert transfer function to state-space (controllable canonical form)
+// For H(s) = (b_n*s^n + ... + b_0) / (s^n + a_{n-1}*s^{n-1} + ... + a_0)
+export fn tf2ss(sys) {
+    if (sys.sys_type != "tf") {
+        return(sys  // Already not tf)
+    }
+
+    tf_num = sys.num
+    tf_den = sys.den
+    n_num = len(tf_num)
+    n_den = len(tf_den)
+
+    // Normalize denominator (leading coefficient = 1)
+    lead = tf_den[0]
+    den_loop = evolve { arr = [], i = 0 } while (i < n_den) {
+        arr' = push(arr, tf_den[i] / lead)
+        i' = i + 1
+    }
+    den_norm = den_loop.arr
+
+    num_loop = evolve { arr = [], i = 0 } while (i < n_num) {
+        arr' = push(arr, tf_num[i] / lead)
+        i' = i + 1
+    }
+    num_norm = num_loop.arr
+
+    // Pad numerator with leading zeros if needed
+    order_sys = n_den - 1
+
+    pad_loop = evolve { arr = [], i = 0 } while (i < n_den) {
+        idx = i - (n_den - n_num)
+        val = if (idx < 0) { return(0) } else { return(num_norm[idx]) }
+        arr' = push(arr, val)
+        i' = i + 1
+    }
+    num_padded = pad_loop.arr
+
+    if (order_sys == 0) {
+        // Static gain
+        return(ss([[0]], [[0]], [[0]], [[num_padded[0]]]))
+    }
+
+    // Controllable canonical form
+    // A is companion matrix of denominator
+    A_loop = evolve { A = [], i = 0 } while (i < order_sys) {
+        row_loop = evolve { row = [], j = 0 } while (j < order_sys) {
+            val = if (j == i + 1) {
+                return(1)
+            } elif (i == order_sys - 1) {
+                return(-den_norm[order_sys - j])
+            } else {
+                return(0)
+            }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        A' = push(A, row_loop.row)
+        i' = i + 1
+    }
+    A = A_loop.A
+
+    // B = [0, 0, ..., 1]^T
+    B_loop = evolve { B = [], i = 0 } while (i < order_sys) {
+        val = if (i == order_sys - 1) { return(1) } else { return(0) }
+        B' = push(B, [val])
+        i' = i + 1
+    }
+    B = B_loop.B
+
+    // C comes from numerator coefficients
+    // C[0][i] = b_{n-1-i} - a_{n-1-i} * b_n (for proper systems where b_n = 0)
+    b_n = num_padded[0]
+    C_loop = evolve { C_row = [], i = 0 } while (i < order_sys) {
+        b_i = num_padded[order_sys - i]
+        a_i = den_norm[order_sys - i]
+        C_row' = push(C_row, b_i - a_i * b_n)
+        i' = i + 1
+    }
+    C = [C_loop.C_row]
+
+    // D = b_n (direct feedthrough)
+    D = [[b_n]]
+
+    return(ss(A, B, C, D))
+}
+
+// ss2tf(sys) - Convert state-space to transfer function
+// H(s) = C * (sI - A)^(-1) * B + D
+// For SISO: uses characteristic polynomial and numerator construction
+export fn ss2tf(sys) {
+    if (sys.sys_type != "ss") {
+        return(sys)
+    }
+
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+
+    s = _shape(A)
+    n = s[0]
+
+    if (n == 0) {
+        // Static gain
+        d_val = D[0][0]
+        return(tf([d_val], [1]))
+    }
+
+    // Denominator is characteristic polynomial of A
+    // det(sI - A) = s^n + a_{n-1}*s^{n-1} + ... + a_0
+    den = charpoly(A)
+
+    // Numerator: Use relationship between B, C and the adjugate
+    // For SISO: num coefficients come from C * adj(sI-A) * B
+    // Simplified approach: use Fadeev-LeVerrier style computation
+    num = compute_tf_numerator(A, B, C, D, den)
+
+    return(if (sys.Ts == 0) {
+        return(tf(num, den))
+    } else {
+        return(dtf(num, den, sys.Ts))
+    })
+}
+
+// Helper: Compute characteristic polynomial coefficients of matrix A
+// Returns [1, a_{n-1}, ..., a_1, a_0] where det(sI - A) = s^n + a_{n-1}*s^{n-1} + ... + a_0
+fn charpoly(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (n == 0) {
+        return([1])
+    }
+
+    // Faddeev-LeVerrier algorithm
+    // M_1 = A, c_1 = -tr(M_1)
+    // M_k = A*(M_{k-1} + c_{k-1}*I), c_k = -tr(M_k)/k
+
+    main_loop = evolve {
+        M = A,
+        coeffs = [1],  // Leading coefficient
+        k = 1
+    } while (k <= n) {
+        // Trace of M
+        tr_loop = evolve { tr = 0, i = 0 } while (i < n) {
+            tr' = tr + M[i][i]
+            i' = i + 1
+        }
+        c_k = -tr_loop.tr / k
+        coeffs' = push(coeffs, c_k)
+
+        // M_next = A * (M + c_k * I)
+        // First compute M + c_k * I
+        Mp_loop = evolve { Mp = [], i = 0 } while (i < n) {
+            row_loop = evolve { row = [], j = 0 } while (j < n) {
+                val = M[i][j]
+                val_new = if (i == j) { return(val + c_k) } else { return(val) }
+                row' = push(row, val_new)
+                j' = j + 1
+            }
+            Mp' = push(Mp, row_loop.row)
+            i' = i + 1
+        }
+        M_plus_cI = Mp_loop.Mp
+
+        // Then multiply A * (M + c_k*I)
+        Mn_loop = evolve { Mn = [], i = 0 } while (i < n) {
+            row_loop = evolve { row = [], j = 0 } while (j < n) {
+                sum_loop = evolve { acc = 0, kk = 0 } while (kk < n) {
+                    acc' = acc + A[i][kk] * M_plus_cI[kk][j]
+                    kk' = kk + 1
+                }
+                row' = push(row, sum_loop.acc)
+                j' = j + 1
+            }
+            Mn' = push(Mn, row_loop.row)
+            i' = i + 1
+        }
+
+        M' = Mn_loop.Mn
+        k' = k + 1
+    }
+
+    return(main_loop.coeffs)
+}
+
+// Helper: Compute transfer function numerator from state-space
+// Uses the relationship: num(s) = C * adj(sI-A) * B + D * det(sI-A)
+fn compute_tf_numerator(A, B, C, D, den) {
+    s = _shape(A)
+    n = s[0]
+
+    // For SISO, B is nx1, C is 1xn, D is 1x1
+    // Extract scalar values
+    c_loop = evolve { cv = [], i = 0 } while (i < n) {
+        cv' = push(cv, C[0][i])
+        i' = i + 1
+    }
+    c_vec = c_loop.cv
+
+    b_loop = evolve { bv = [], i = 0 } while (i < n) {
+        bv' = push(bv, B[i][0])
+        i' = i + 1
+    }
+    b_vec = b_loop.bv
+
+    d_val = D[0][0]
+
+    // Use Faddeev-LeVerrier to get adjugate polynomial
+    adj_loop = evolve {
+        N = _eye(n),
+        coeffs = [],
+        k = n - 1
+    } while (k >= 0) {
+        // Compute c * N * b (scalar)
+        Nb_loop = evolve { Nb = [], i = 0 } while (i < n) {
+            sum_loop = evolve { acc = 0, j = 0 } while (j < n) {
+                acc' = acc + N[i][j] * b_vec[j]
+                j' = j + 1
+            }
+            Nb' = push(Nb, sum_loop.acc)
+            i' = i + 1
+        }
+        Nb = Nb_loop.Nb
+
+        dot_loop = evolve { dot = 0, i = 0 } while (i < n) {
+            dot' = dot + c_vec[i] * Nb[i]
+            i' = i + 1
+        }
+        cNb = dot_loop.dot
+
+        coeffs' = concat([cNb], coeffs)
+
+        // N_next = N*A + c_{n-k}*I
+        c_coeff = den[n - k]
+
+        // N*A
+        NA_loop = evolve { NA = [], i = 0 } while (i < n) {
+            row_loop = evolve { row = [], j = 0 } while (j < n) {
+                sum_loop = evolve { acc = 0, kk = 0 } while (kk < n) {
+                    acc' = acc + N[i][kk] * A[kk][j]
+                    kk' = kk + 1
+                }
+                row' = push(row, sum_loop.acc)
+                j' = j + 1
+            }
+            NA' = push(NA, row_loop.row)
+            i' = i + 1
+        }
+        NA = NA_loop.NA
+
+        // Add c*I
+        Nn_loop = evolve { Nn = [], i = 0 } while (i < n) {
+            row_loop = evolve { row = [], j = 0 } while (j < n) {
+                val = NA[i][j]
+                val_new = if (i == j) { return(val + c_coeff) } else { return(val) }
+                row' = push(row, val_new)
+                j' = j + 1
+            }
+            Nn' = push(Nn, row_loop.row)
+            i' = i + 1
+        }
+
+        N' = Nn_loop.Nn
+        k' = k - 1
+    }
+
+    num_adj = adj_loop.coeffs
+    n_num = len(num_adj)
+    n_den = len(den)
+
+    // Pad num_adj to same length as den and add d*den
+    result_loop = evolve { nr = [], i = 0 } while (i < n_den) {
+        idx = i - (n_den - n_num)
+        adj_val = if (idx < 0) { return(0) } else { return(num_adj[idx]) }
+        nr' = push(nr, adj_val + d_val * den[i])
+        i' = i + 1
+    }
+
+    return(result_loop.nr)
+}
+
+// zpk2tf(sys) - Convert zero-pole-gain to transfer function
+// num = k * prod(s - z_i), den = prod(s - p_i)
+export fn zpk2tf(sys) {
+    if (sys.sys_type != "zpk") {
+        return(sys)
+    }
+
+    z = sys.z
+    p = sys.p
+    k = sys.k
+
+    // Build numerator from zeros
+    num = poly_from_roots(z)
+    // Scale by gain
+    scale_loop = evolve { ns = [], i = 0 } while (i < len(num)) {
+        ns' = push(ns, k * num[i])
+        i' = i + 1
+    }
+    num_scaled = scale_loop.ns
+
+    // Build denominator from poles
+    den = poly_from_roots(p)
+
+    return(if (sys.Ts == 0) {
+        return(tf(num_scaled, den))
+    } else {
+        return(dtf(num_scaled, den, sys.Ts))
+    })
+}
+
+// Helper: Create polynomial from roots
+// Returns [1, -sum(roots), ..., prod(roots)] for (s-r1)(s-r2)...
+fn poly_from_roots(roots) {
+    n = len(roots)
+    if (n == 0) {
+        return([1])
+    }
+
+    // Start with (s - r[0]) = [1, -r[0]]
+    poly_init = [1, -roots[0]]
+
+    // Multiply by each subsequent (s - r[i])
+    loop = evolve { poly = poly_init, i = 1 } while (i < n) {
+        factor = [1, -roots[i]]
+        poly' = _polymul(poly, factor)
+        i' = i + 1
+    }
+
+    return(loop.poly)
+}
+
+// tf2zpk(sys) - Convert transfer function to zero-pole-gain
+export fn tf2zpk(sys) {
+    if (sys.sys_type != "tf") {
+        return(sys)
+    }
+
+    // Zeros from numerator roots
+    z = _roots(sys.num)
+
+    // Poles from denominator roots
+    p = _roots(sys.den)
+
+    // Gain is ratio of leading coefficients
+    k = sys.num[0] / sys.den[0]
+
+    return(if (sys.Ts == 0) {
+        return(zpk(z, p, k))
+    } else {
+        return(dzpk(z, p, k, sys.Ts))
+    })
+}
+
+// =============================================================================
+// SYSTEM CONNECTIONS
+// =============================================================================
+
+// series(sys1, sys2) - Series connection: sys1 -> sys2
+// H = H2 * H1
+export fn series(sys1, sys2) {
+    tf1 = to_tf(sys1)
+    tf2 = to_tf(sys2)
+
+    num = _polymul(tf2.num, tf1.num)
+    den = _polymul(tf2.den, tf1.den)
+
+    Ts = if (tf1.Ts != 0) { return(tf1.Ts) } else { return(tf2.Ts) }
+
+    return(if (Ts == 0) {
+        return(tf(num, den))
+    } else {
+        return(dtf(num, den, Ts))
+    })
+}
+
+// parallel(sys1, sys2) - Parallel connection
+// H = H1 + H2
+export fn parallel(sys1, sys2) {
+    tf1 = to_tf(sys1)
+    tf2 = to_tf(sys2)
+
+    num1_den2 = _polymul(tf1.num, tf2.den)
+    num2_den1 = _polymul(tf2.num, tf1.den)
+
+    n1 = len(num1_den2)
+    n2 = len(num2_den1)
+    n_max = if (n1 > n2) { return(n1) } else { return(n2) }
+
+    num_loop = evolve { num = [], i = 0 } while (i < n_max) {
+        idx1 = i - (n_max - n1)
+        idx2 = i - (n_max - n2)
+        v1 = if (idx1 < 0) { return(0) } else { return(num1_den2[idx1]) }
+        v2 = if (idx2 < 0) { return(0) } else { return(num2_den1[idx2]) }
+        num' = push(num, v1 + v2)
+        i' = i + 1
+    }
+
+    den = _polymul(tf1.den, tf2.den)
+
+    Ts = if (tf1.Ts != 0) { return(tf1.Ts) } else { return(tf2.Ts) }
+
+    return(if (Ts == 0) {
+        return(tf(num_loop.num, den))
+    } else {
+        return(dtf(num_loop.num, den, Ts))
+    })
+}
+
+// feedback(sys1, sys2, sign) - Feedback connection
+// H = sys1 / (1 + sign * sys1 * sys2)
+// sign = -1 for negative feedback (default), +1 for positive
+export fn feedback(sys1, sys2, sign) {
+    tf1 = to_tf(sys1)
+    tf2 = to_tf(sys2)
+
+    n1d2 = _polymul(tf1.num, tf2.den)
+    d1d2 = _polymul(tf1.den, tf2.den)
+    n1n2 = _polymul(tf1.num, tf2.num)
+
+    n_d = len(d1d2)
+    n_n = len(n1n2)
+    n_max = if (n_d > n_n) { return(n_d) } else { return(n_n) }
+
+    den_loop = evolve { den = [], i = 0 } while (i < n_max) {
+        idx_d = i - (n_max - n_d)
+        idx_n = i - (n_max - n_n)
+        v_d = if (idx_d < 0) { return(0) } else { return(d1d2[idx_d]) }
+        v_n = if (idx_n < 0) { return(0) } else { return(n1n2[idx_n]) }
+        den' = push(den, v_d + sign * v_n)
+        i' = i + 1
+    }
+
+    Ts = if (tf1.Ts != 0) { return(tf1.Ts) } else { return(tf2.Ts) }
+
+    return(if (Ts == 0) {
+        return(tf(n1d2, den_loop.den))
+    } else {
+        return(dtf(n1d2, den_loop.den, Ts))
+    })
+}
+
+// Helper: Convert any system to transfer function
+fn to_tf(sys) {
+    return(if (sys.sys_type == "tf") {
+        return(sys)
+    } elif (sys.sys_type == "ss") {
+        return(ss2tf(sys))
+    } elif (sys.sys_type == "zpk") {
+        return(zpk2tf(sys))
+    } else {
+        return(sys)
+    })
+}

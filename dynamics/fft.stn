@@ -1,0 +1,326 @@
+// fft.stn - Fast Fourier Transform Standard Library
+// Provides FFT and spectral analysis functions
+//
+// Usage: import fft, ifft, spectrum from dynamics/fft
+
+// Import complex operations
+import complex as _complex from complex
+import polar as _polar from complex
+import arg, conj, abs from complex
+
+// Import math functions
+import PI, pow, sin, cos from math
+
+// =============================================================================
+// FFT CORE (Cooley-Tukey Radix-2 DIT)
+// =============================================================================
+
+// _next_pow2(n) - Find smallest power of 2 >= n
+fn _next_pow2(n) {
+    p = evolve (p = 1) while (p < n) {
+        p' = p * 2
+    }
+    return(p)
+}
+
+// _bit_reverse(x, bits) - Bit-reverse an integer
+fn _bit_reverse(x, bits) {
+    rev := evolve { rev = 0, i = 0 } while (i < bits) {
+        bit = floor(x / pow(2, i)) - 2 * floor(x / pow(2, i + 1))
+        rev' = rev + bit * pow(2, bits - 1 - i)
+        i' = i + 1
+    }
+    return(floor(rev))
+}
+
+// _log2(n) - Integer log base 2
+fn _log2(n) {
+    log := evolve { log = 0, m = n } while (m > 1) {
+        log' = log + 1
+        m' = floor(m / 2)
+    }
+    return(log)
+}
+
+// _fft_core(x, isComplexInput) - Internal FFT implementation
+// isComplexInput: if true, x contains complex values; if false, x contains real numbers
+fn _fft_core(x, isComplexInput) {
+    n_orig = len(x)
+    n = _next_pow2(n_orig)
+    log_n = _log2(n)
+
+    // Zero-pad if needed and convert to complex (bit-reversed order)
+    initLoop = evolve { initArr = [], idx = 0 } while (idx < n) {
+        // Bit-reverse the index
+        revIdx = _bit_reverse(idx, log_n)
+
+        // Get the element, checking if within bounds
+        initVal = if (revIdx < n_orig) {
+            // If complex input, use directly; otherwise convert real to complex
+            return(if (isComplexInput) { return(x[revIdx]) } else { return(_complex(x[revIdx], 0)) })
+        } else {
+            return(_complex(0, 0))
+        }
+
+        initArr' = push(initArr, initVal)
+        idx' = idx + 1
+    }
+
+    // Iterative FFT (Cooley-Tukey DIT)
+    // For each stage s = 1, 2, ..., log_n
+    result = evolve { data = initLoop.initArr, stage = 1 } while (stage <= log_n) {
+        m = pow(2, stage)         // Size of sub-DFT at this stage
+        half_m = floor(m / 2)
+
+        // Twiddle factor: W_m = e^(-2*pi*i/m)
+        angle = -2 * PI / m
+
+        // Process each group
+        groups = evolve { gData = data, gk = 0 } while (gk < n) {
+            // Process pairs in this group
+            pairs = evolve { pData = gData, pj = 0 } while (pj < half_m) {
+                idx0 = gk + pj
+                idx1 = gk + pj + half_m
+
+                // Twiddle factor: W_m^j = e^(-2*pi*i*j/m)
+                tw_angle = angle * pj
+                twiddle = _polar(1, tw_angle)
+
+                // Butterfly operation
+                even = pData[idx0]
+                odd = pData[idx1]
+                t = twiddle * odd
+
+                new_even = even + t
+                new_odd = even - t
+
+                // Update array (build new array with updated values)
+                updated := evolve { updated = [], ui = 0 } while (ui < n) {
+                    uVal = if (ui == idx0) { return(new_even) }
+                          elif (ui == idx1) { return(new_odd) }
+                          else { return(pData[ui]) }
+                    updated' = push(updated, uVal)
+                    ui' = ui + 1
+                }
+                pData' = updated
+                pj' = pj + 1
+            }
+            gData' = pairs.pData
+            gk' = gk + m
+        }
+        data' = groups.gData
+        stage' = stage + 1
+    }
+
+    return(result.data)
+}
+
+// fft(x) - Fast Fourier Transform using Cooley-Tukey radix-2 algorithm
+// Input: array of real numbers
+// Output: array of complex values (frequency domain)
+// Note: Input length is zero-padded to next power of 2 if needed
+export fn fft(x) = _fft_core(x, false)
+
+// ifft(X) - Inverse Fast Fourier Transform
+// Computes inverse DFT: x[n] = (1/N) * sum_k X[k] * e^(2*pi*i*k*n/N)
+export fn ifft(X) {
+    inputLen = len(X)
+
+    // Take conjugate of input using built-in conj
+    conjLoop = evolve { conjugated = [], idx = 0 } while (idx < inputLen) {
+        elem = X[idx]
+        conjugated' = push(conjugated, conj(elem))
+        idx' = idx + 1
+    }
+
+    // Apply forward FFT (input is already complex)
+    fftconj = _fft_core(conjLoop.conjugated, true)
+    fftLen = len(fftconj)
+
+    // Take conjugate and divide by n
+    // For complex division: (a + bi) / n = (a/n) + (b/n)i
+    resultLoop = evolve { resultArr = [], idx = 0 } while (idx < fftLen) {
+        elem = fftconj[idx]
+        conjElem = conj(elem)
+        // Get real and imag parts, divide each by n
+        scaledElem = _complex(conjElem.re / inputLen, conjElem.im / inputLen)
+        resultArr' = push(resultArr, scaledElem)
+        idx' = idx + 1
+    }
+
+    return(resultLoop.resultArr)
+}
+
+// =============================================================================
+// FFT UTILITIES
+// =============================================================================
+
+// fftfreq(n, d) - Return DFT sample frequencies
+// n: window length
+// d: sample spacing (default 1.0)
+// Returns array of frequencies: [0, 1, ..., n/2-1, -n/2, ..., -1] / (n*d)
+export fn fftfreq(n, d) {
+    half = floor(n / 2)
+    freq := evolve { freq = [], i = 0 } while (i < n) {
+        f = if (i < half) {
+            return(i / (n * d))
+        } else {
+            return((i - n) / (n * d))
+        }
+        freq' = push(freq, f)
+        i' = i + 1
+    }
+    return(freq)
+}
+
+// rfftfreq(n, d) - Return real FFT sample frequencies
+// Only returns non-negative frequencies for real-valued input
+export fn rfftfreq(n, d) {
+    nfreq = floor(n / 2) + 1
+    freq := evolve { freq = [], i = 0 } while (i < nfreq) {
+        freq' = push(freq, i / (n * d))
+        i' = i + 1
+    }
+    return(freq)
+}
+
+// fftshift(x) - Shift zero-frequency component to center
+// Rearranges [0..n/2-1, -n/2..-1] to [-n/2..-1, 0..n/2-1]
+export fn fftshift(x) {
+    n = len(x)
+    half = floor(n / 2)
+    shifted := evolve { shifted = [], i = 0 } while (i < n) {
+        // Map i to new index
+        srcIdx = if (i < half) { return(i + (n - half)) } else { return(i - half) }
+        shifted' = push(shifted, x[srcIdx])
+        i' = i + 1
+    }
+    return(shifted)
+}
+
+// ifftshift(x) - Inverse of fftshift
+export fn ifftshift(x) {
+    n = len(x)
+    half = floor((n + 1) / 2)  // ceil(n/2) for odd n
+    shifted := evolve { shifted = [], i = 0 } while (i < n) {
+        srcIdx = if (i < half) { return(i + (n - half)) } else { return(i - half) }
+        shifted' = push(shifted, x[srcIdx])
+        i' = i + 1
+    }
+    return(shifted)
+}
+
+// =============================================================================
+// SPECTRAL ANALYSIS
+// =============================================================================
+
+// spectrum(x, fs) - Magnitude spectrum (one-sided for real input)
+// x: time-domain signal
+// fs: sample frequency (default 1.0)
+// Returns { freq, mag } where mag is the magnitude spectrum
+export fn spectrum(x, fs) {
+    n = len(x)
+    X = fft(x)
+
+    // Compute magnitude (one-sided spectrum)
+    nfreq = floor(n / 2) + 1
+
+    freq := evolve { freq = [], i = 0 } while (i < nfreq) {
+        freq' = push(freq, i * fs / n)
+        i' = i + 1
+    }
+
+    mag := evolve { mag = [], i = 0 } while (i < nfreq) {
+        m = abs(X[i])
+        // Scale: 2/n for all except DC and Nyquist
+        scale = if (i == 0 || i == nfreq - 1) { return(1 / n) } else { return(2 / n) }
+        mag' = push(mag, m * scale)
+        i' = i + 1
+    }
+
+    return({ freq = freq, mag = mag })
+}
+
+// psd(x, fs) - Power Spectral Density (one-sided)
+// Returns { freq, power } where power is |X[k]|^2 / n
+export fn psd(x, fs) {
+    n = len(x)
+    X = fft(x)
+
+    nfreq = floor(n / 2) + 1
+
+    freq := evolve { freq = [], i = 0 } while (i < nfreq) {
+        freq' = push(freq, i * fs / n)
+        i' = i + 1
+    }
+
+    power := evolve { power = [], i = 0 } while (i < nfreq) {
+        m = abs(X[i])
+        p = m * m / n
+        // Scale: 2 for all except DC and Nyquist
+        scale = if (i == 0 || i == nfreq - 1) { return(1) } else { return(2) }
+        power' = push(power, p * scale)
+        i' = i + 1
+    }
+
+    return({ freq = freq, power = power })
+}
+
+// phase_spectrum(x) - Phase spectrum
+// Returns unwrapped phase in radians
+export fn phase_spectrum(x) {
+    X = fft(x)
+    n = len(X)
+
+    phase := evolve { phase = [], i = 0 } while (i < n) {
+        phase' = push(phase, arg(X[i]))
+        i' = i + 1
+    }
+
+    return(phase)
+}
+
+// =============================================================================
+// CONVOLUTION VIA FFT
+// =============================================================================
+
+// fftconvolve(a, b) - Fast convolution using FFT
+// Returns the linear convolution of a and b
+export fn fftconvolve(a, b) {
+    na = len(a)
+    nb = len(b)
+    n_out = na + nb - 1
+    n = _next_pow2(n_out)
+
+    // Zero-pad and FFT both signals
+    a_padded := evolve { a_padded = [], i = 0 } while (i < n) {
+        val = if (i < na) { return(a[i]) } else { return(0) }
+        a_padded' = push(a_padded, val)
+        i' = i + 1
+    }
+    b_padded := evolve { b_padded = [], i = 0 } while (i < n) {
+        val = if (i < nb) { return(b[i]) } else { return(0) }
+        b_padded' = push(b_padded, val)
+        i' = i + 1
+    }
+
+    A = fft(a_padded)
+    B = fft(b_padded)
+
+    // Multiply in frequency domain
+    C := evolve { C = [], i = 0 } while (i < n) {
+        C' = push(C, A[i] * B[i])
+        i' = i + 1
+    }
+
+    // Inverse FFT
+    c_full = ifft(C)
+
+    // Take real parts and trim to output length
+    result := evolve { result = [], i = 0 } while (i < n_out) {
+        result' = push(result, c_full[i].re)
+        i' = i + 1
+    }
+
+    return(result)
+}

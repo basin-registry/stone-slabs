@@ -1,0 +1,9 @@
+name = "dynamics"
+version = "0.1.0"
+entry = "main.stn"
+description = "Dynamical systems: ODE solvers, FFT, state-space, transfer functions, control theory"
+
+deps = {
+    linalg = "0.1.0"
+    complex = "0.1.0"
+}

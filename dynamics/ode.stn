@@ -1,0 +1,339 @@
+// ode.stn - Ordinary Differential Equation Solvers
+// Provides numerical integration methods for ODEs
+//
+// Usage: import euler, rk4, rk45 from dynamics/ode
+//
+// All solvers take:
+//   f(t, y) - derivative function returning dy/dt
+//   y0 - initial condition (scalar or array)
+//   t  - time points array (for fixed-step) or tspan (for adaptive)
+//
+// All solvers return(: { t = [...], y = [...] })
+//   t - time points
+//   y - solution at each time point
+//
+// This module uses function overloading to provide separate implementations
+// for scalar and array state variables, selected at compile-time based on y0 type.
+
+import sqrt, pow from math
+
+// =============================================================================
+// FORWARD EULER METHOD
+// =============================================================================
+
+// Scalar version
+export fn euler(f: (num, num) -> num, y0: num, t: array<num,1>) {
+    n = len(t)
+    init_results = [y0]
+
+    result = evolve { y_curr = y0, results = init_results, i = 1 } while (i < n) {
+        t_prev = t[i - 1]
+        t_curr = t[i]
+        dt = t_curr - t_prev
+
+        dy = f(t_prev, y_curr)
+        y_next = y_curr + dt * dy
+
+        y_curr' = y_next
+        results' = push(results, y_next)
+        i' = i + 1
+    }
+
+    return({ t = t, y = result.results })
+}
+
+// Array version
+export fn euler(f: (num, array<num,1>) -> array<num,1>, y0: array<num,1>, t: array<num,1>) {
+    n = len(t)
+    init_results = push([], y0)
+
+    result = evolve { y_curr = y0, results = init_results, i = 1 } while (i < n) {
+        t_prev = t[i - 1]
+        t_curr = t[i]
+        dt = t_curr - t_prev
+
+        dy = f(t_prev, y_curr)
+        y_next = y_curr .+ (dy .* dt)
+
+        y_curr' = y_next
+        results' = push(results, y_next)
+        i' = i + 1
+    }
+
+    return({ t = t, y = result.results })
+}
+
+// =============================================================================
+// CLASSICAL RUNGE-KUTTA (RK4)
+// =============================================================================
+
+// Scalar version
+export fn rk4(f: (num, num) -> num, y0: num, t: array<num,1>) {
+    n = len(t)
+    init_results = [y0]
+
+    result = evolve { y_curr = y0, results = init_results, i = 1 } while (i < n) {
+        t_prev = t[i - 1]
+        t_curr = t[i]
+        dt = t_curr - t_prev
+
+        k1 = f(t_prev, y_curr)
+        k2 = f(t_prev + dt/2, y_curr + k1*dt/2)
+        k3 = f(t_prev + dt/2, y_curr + k2*dt/2)
+        k4 = f(t_prev + dt, y_curr + k3*dt)
+
+        y_next = y_curr + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
+
+        y_curr' = y_next
+        results' = push(results, y_next)
+        i' = i + 1
+    }
+
+    return({ t = t, y = result.results })
+}
+
+// Array version
+export fn rk4(f: (num, array<num,1>) -> array<num,1>, y0: array<num,1>, t: array<num,1>) {
+    n = len(t)
+    init_results = push([], y0)
+
+    result = evolve { y_curr = y0, results = init_results, i = 1 } while (i < n) {
+        t_prev = t[i - 1]
+        t_curr = t[i]
+        dt = t_curr - t_prev
+
+        k1 = f(t_prev, y_curr)
+        k2 = f(t_prev + dt/2, y_curr .+ (k1 .* (dt/2)))
+        k3 = f(t_prev + dt/2, y_curr .+ (k2 .* (dt/2)))
+        k4 = f(t_prev + dt, y_curr .+ (k3 .* dt))
+
+        y_next = y_curr .+ ((k1 .+ (k2 .* 2) .+ (k3 .* 2) .+ k4) .* (dt/6))
+
+        y_curr' = y_next
+        results' = push(results, y_next)
+        i' = i + 1
+    }
+
+    return({ t = t, y = result.results })
+}
+
+// =============================================================================
+// ADAPTIVE RUNGE-KUTTA-FEHLBERG (RK45)
+// =============================================================================
+
+// Scalar version
+export fn rk45(f: (num, num) -> num, y0: num, tspan: array<num,1>) {
+    rtol = 1e-6
+    atol = 1e-9
+
+    t_start = tspan[0]
+    t_end = tspan[1]
+
+    h_init = (t_end - t_start) / 100
+    max_step = (t_end - t_start) / 10
+    min_step = (t_end - t_start) * 1e-10
+
+    // Dormand-Prince coefficients
+    c2 = 1/5
+    c3 = 3/10
+    c4 = 4/5
+    c5 = 8/9
+    c6 = 1
+    c7 = 1
+
+    a21 = 1/5
+    a31 = 3/40
+    a32 = 9/40
+    a41 = 44/45
+    a42 = -56/15
+    a43 = 32/9
+    a51 = 19372/6561
+    a52 = -25360/2187
+    a53 = 64448/6561
+    a54 = -212/729
+    a61 = 9017/3168
+    a62 = -355/33
+    a63 = 46732/5247
+    a64 = 49/176
+    a65 = -5103/18656
+    a71 = 35/384
+    a72 = 0
+    a73 = 500/1113
+    a74 = 125/192
+    a75 = -2187/6784
+    a76 = 11/84
+
+    b1 = 35/384
+    b2 = 0
+    b3 = 500/1113
+    b4 = 125/192
+    b5 = -2187/6784
+    b6 = 11/84
+    b7 = 0
+
+    b1s = 5179/57600
+    b2s = 0
+    b3s = 7571/16695
+    b4s = 393/640
+    b5s = -92097/339200
+    b6s = 187/2100
+    b7s = 1/40
+
+    result = evolve { t_arr = [t_start], y_arr = [y0], t = t_start, y = y0, h = h_init } while (t < t_end) {
+        h_use = if (t + h > t_end) { return(t_end - t) } else { return(h) }
+
+        k1 = f(t, y)
+        k2 = f(t + c2*h_use, y + k1*a21*h_use)
+        k3 = f(t + c3*h_use, y + k1*a31*h_use + k2*a32*h_use)
+        k4 = f(t + c4*h_use, y + k1*a41*h_use + k2*a42*h_use + k3*a43*h_use)
+        k5 = f(t + c5*h_use, y + k1*a51*h_use + k2*a52*h_use + k3*a53*h_use + k4*a54*h_use)
+        k6 = f(t + c6*h_use, y + k1*a61*h_use + k2*a62*h_use + k3*a63*h_use + k4*a64*h_use + k5*a65*h_use)
+        k7 = f(t + c7*h_use, y + k1*a71*h_use + k2*a72*h_use + k3*a73*h_use + k4*a74*h_use + k5*a75*h_use + k6*a76*h_use)
+
+        y5 = y + h_use * (b1*k1 + b2*k2 + b3*k3 + b4*k4 + b5*k5 + b6*k6 + b7*k7)
+        y4 = y + h_use * (b1s*k1 + b2s*k2 + b3s*k3 + b4s*k4 + b5s*k5 + b6s*k6 + b7s*k7)
+
+        diff = abs(y5 - y4)
+        scale = atol + rtol * max(abs(y4), abs(y5))
+        err = diff / scale
+
+        step_result = if (err <= 1) {
+            t_new = t + h_use
+            return({
+                accepted = true,
+                t_new = t_new,
+                y_new = y5,
+                h_new = h_use * min(2, max(0.5, 0.9 * pow(1/err, 0.2)))
+            })
+        } else {
+            return({
+                accepted = false,
+                t_new = t,
+                y_new = y,
+                h_new = h_use * max(0.1, 0.9 * pow(1/err, 0.25))
+            })
+        }
+
+        t' = step_result.t_new
+        y' = step_result.y_new
+        h' = max(min_step, min(max_step, step_result.h_new))
+
+        t_arr' = if (step_result.accepted) { return(push(t_arr, step_result.t_new)) } else { return(t_arr) }
+        y_arr' = if (step_result.accepted) { return(push(y_arr, step_result.y_new)) } else { return(y_arr) }
+    }
+
+    return({ t = result.t_arr, y = result.y_arr })
+}
+
+// Array version
+export fn rk45(f: (num, array<num,1>) -> array<num,1>, y0: array<num,1>, tspan: array<num,1>) {
+    rtol = 1e-6
+    atol = 1e-9
+
+    t_start = tspan[0]
+    t_end = tspan[1]
+
+    h_init = (t_end - t_start) / 100
+    max_step = (t_end - t_start) / 10
+    min_step = (t_end - t_start) * 1e-10
+
+    // Dormand-Prince coefficients
+    c2 = 1/5
+    c3 = 3/10
+    c4 = 4/5
+    c5 = 8/9
+    c6 = 1
+    c7 = 1
+
+    a21 = 1/5
+    a31 = 3/40
+    a32 = 9/40
+    a41 = 44/45
+    a42 = -56/15
+    a43 = 32/9
+    a51 = 19372/6561
+    a52 = -25360/2187
+    a53 = 64448/6561
+    a54 = -212/729
+    a61 = 9017/3168
+    a62 = -355/33
+    a63 = 46732/5247
+    a64 = 49/176
+    a65 = -5103/18656
+    a71 = 35/384
+    a72 = 0
+    a73 = 500/1113
+    a74 = 125/192
+    a75 = -2187/6784
+    a76 = 11/84
+
+    b1 = 35/384
+    b2 = 0
+    b3 = 500/1113
+    b4 = 125/192
+    b5 = -2187/6784
+    b6 = 11/84
+    b7 = 0
+
+    b1s = 5179/57600
+    b2s = 0
+    b3s = 7571/16695
+    b4s = 393/640
+    b5s = -92097/339200
+    b6s = 187/2100
+    b7s = 1/40
+
+    result = evolve { t_arr = [t_start], y_arr = push([], y0), t = t_start, y = y0, h = h_init } while (t < t_end) {
+        h_use = if (t + h > t_end) { return(t_end - t) } else { return(h) }
+
+        k1 = f(t, y)
+        k2 = f(t + c2*h_use, y .+ (k1 .* (a21*h_use)))
+        k3 = f(t + c3*h_use, y .+ (k1 .* (a31*h_use)) .+ (k2 .* (a32*h_use)))
+        k4 = f(t + c4*h_use, y .+ (k1 .* (a41*h_use)) .+ (k2 .* (a42*h_use)) .+ (k3 .* (a43*h_use)))
+        k5 = f(t + c5*h_use, y .+ (k1 .* (a51*h_use)) .+ (k2 .* (a52*h_use)) .+ (k3 .* (a53*h_use)) .+ (k4 .* (a54*h_use)))
+        k6 = f(t + c6*h_use, y .+ (k1 .* (a61*h_use)) .+ (k2 .* (a62*h_use)) .+ (k3 .* (a63*h_use)) .+ (k4 .* (a64*h_use)) .+ (k5 .* (a65*h_use)))
+        k7 = f(t + c7*h_use, y .+ (k1 .* (a71*h_use)) .+ (k2 .* (a72*h_use)) .+ (k3 .* (a73*h_use)) .+ (k4 .* (a74*h_use)) .+ (k5 .* (a75*h_use)) .+ (k6 .* (a76*h_use)))
+
+        scaled5 = (k1 .* b1) .+ (k2 .* b2) .+ (k3 .* b3) .+ (k4 .* b4) .+ (k5 .* b5) .+ (k6 .* b6) .+ (k7 .* b7)
+        y5 = y .+ (scaled5 .* h_use)
+
+        scaled4 = (k1 .* b1s) .+ (k2 .* b2s) .+ (k3 .* b3s) .+ (k4 .* b4s) .+ (k5 .* b5s) .+ (k6 .* b6s) .+ (k7 .* b7s)
+        y4 = y .+ (scaled4 .* h_use)
+
+        // RMS error for arrays
+        n_state = len(y4)
+        err_loop = evolve { err_sum = 0, idx = 0 } while (idx < n_state) {
+            diff = abs(y5[idx] - y4[idx])
+            scale = atol + rtol * max(abs(y4[idx]), abs(y5[idx]))
+            err_sum' = err_sum + (diff / scale) ^ 2
+            idx' = idx + 1
+        }
+        err = sqrt(err_loop.err_sum / n_state)
+
+        step_result = if (err <= 1) {
+            t_new = t + h_use
+            return({
+                accepted = true,
+                t_new = t_new,
+                y_new = y5,
+                h_new = h_use * min(2, max(0.5, 0.9 * pow(1/err, 0.2)))
+            })
+        } else {
+            return({
+                accepted = false,
+                t_new = t,
+                y_new = y,
+                h_new = h_use * max(0.1, 0.9 * pow(1/err, 0.25))
+            })
+        }
+
+        t' = step_result.t_new
+        y' = step_result.y_new
+        h' = max(min_step, min(max_step, step_result.h_new))
+
+        t_arr' = if (step_result.accepted) { return(push(t_arr, step_result.t_new)) } else { return(t_arr) }
+        y_arr' = if (step_result.accepted) { return(push(y_arr, step_result.y_new)) } else { return(y_arr) }
+    }
+
+    return({ t = result.t_arr, y = result.y_arr })
+}

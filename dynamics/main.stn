@@ -1,0 +1,55 @@
+// main.stn - Dynamics Library Barrel Module
+// Re-exports all dynamics functions for convenient access
+//
+// Usage: import dynamics
+//        dynamics.step(sys, t)
+//        dynamics.bode(sys, omega)
+
+// =============================================================================
+// ODE SOLVERS
+// =============================================================================
+export euler, rk4 from dynamics/ode
+
+// =============================================================================
+// POLYNOMIAL OPERATIONS
+// =============================================================================
+export polyval, polymul, deconv, roots, poly_from_roots from dynamics/poly
+export polyadd, polysub, polyder, polyint from dynamics/poly
+export polyfit, polystr from dynamics/poly
+
+// =============================================================================
+// FFT AND SPECTRAL ANALYSIS
+// =============================================================================
+export fft, ifft, fftfreq, fftshift, spectrum from dynamics/fft
+
+// =============================================================================
+// SYSTEM REPRESENTATIONS
+// =============================================================================
+export tf, ss, zpk, dtf, dss from dynamics/systems
+export poles, zeros, dcgain, order from dynamics/systems
+export is_stable, is_continuous, is_discrete from dynamics/systems
+export tf2ss, ss2tf, zpk2tf from dynamics/systems
+export series, parallel, feedback from dynamics/systems
+
+// =============================================================================
+// TIME-DOMAIN ANALYSIS
+// =============================================================================
+export step, impulse, lsim, initial, step_info from dynamics/analysis
+
+// =============================================================================
+// FREQUENCY-DOMAIN ANALYSIS
+// =============================================================================
+export freqresp, evalfr, bode, nyquist, margin, bandwidth from dynamics/frequency
+
+// =============================================================================
+// DISCRETE-TIME OPERATIONS
+// =============================================================================
+export c2d, d2c, dlsim, dstep, dimpulse from dynamics/discrete
+
+// =============================================================================
+// CONTROL DESIGN
+// =============================================================================
+export pid, pid2 from dynamics/control
+export ctrb, obsv, is_controllable, is_observable from dynamics/control
+export place, acker, lqr from dynamics/control
+export rlocus from dynamics/control

@@ -1,0 +1,423 @@
+// frequency.stn - Frequency-Domain Analysis
+// Provides Bode plots, Nyquist plots, frequency response, and stability margins
+//
+// Usage: import freqresp, bode, nyquist, margin from dynamics/frequency
+
+import Complex, complex, arg, abs from complex
+import tf2ss, is_continuous, order from dynamics/systems
+import polyval as _eval from dynamics/poly
+import log10, PI, sin, cos, sqrt from math
+import zeros as _zeros from primitives
+import shape as _shape from primitives
+
+// =============================================================================
+// FREQUENCY RESPONSE EVALUATION
+// =============================================================================
+
+// evalfr(sys, s) - Evaluate system at complex frequency s
+// Returns complex value H(s)
+export fn evalfr(sys, s: Complex) {
+    return(if (sys.sys_type == "tf") {
+        // H(s) = num(s) / den(s)
+        num_val = _eval(sys.num, s)
+        den_val = _eval(sys.den, s)
+        return(num_val / den_val)
+    } else {
+        // State-space: H(s) = C @ inv(sI - A) @ B + D
+        // For SISO, this simplifies
+        return(evalfr_ss(sys, s))
+    })
+}
+
+// Evaluate state-space system at complex frequency
+fn evalfr_ss(sys, s: Complex) {
+    A = sys.A
+    B = sys.B
+    C = sys.C
+    D = sys.D
+    n = order(sys)
+
+    // Build (sI - A) matrix
+    sI_A = build_sI_minus_A(s, A, n)
+
+    // Solve (sI - A) @ x = B for x, then compute C @ x + D
+    // For SISO: H(s) = C @ (sI - A)^(-1) @ B + D
+    x = csolve_vec(sI_A, get_col_complex(B, 0), n)
+
+    // y = C @ x + D
+    c_row = get_row(C, 0)
+    y = cvec_dot(c_row, x)
+    return(y + complex(D[0][0], 0))
+}
+
+// Build (sI - A) as complex matrix
+fn build_sI_minus_A(s: Complex, A, n) {
+    result = evolve { rows = [], i = 0 } while (i < n) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            val = if (i == j) {
+                return(s - complex(A[i][j], 0))
+            } else {
+                return(complex(-A[i][j], 0))
+            }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// =============================================================================
+// FREQUENCY RESPONSE
+// =============================================================================
+
+// freqresp(sys, omega) - Compute frequency response at given frequencies
+// omega: array of angular frequencies (rad/s)
+// Returns: { omega, H } where H[i] is complex response at omega[i]
+export fn freqresp(sys, omega) {
+    n_w = len(omega)
+    is_cont = is_continuous(sys)
+
+    loop = evolve { H = [], i = 0 } while (i < n_w) {
+        w = omega[i]
+        // For continuous: s = j*omega
+        // For discrete: z = e^(j*omega*Ts)
+        s = if (is_cont) {
+            return(complex(0, w))
+        } else {
+            // z = e^(j*w*Ts) = cos(w*Ts) + j*sin(w*Ts)
+            Ts = sys.Ts
+            return(complex(cos(w * Ts), sin(w * Ts)))
+        }
+        h = evalfr(sys, s)
+        H' = push(H, h)
+        i' = i + 1
+    }
+
+    return({ omega = omega, H = loop.H })
+}
+
+// =============================================================================
+// BODE PLOT DATA
+// =============================================================================
+
+// bode(sys, omega) - Compute Bode plot data
+// Returns: { omega, mag, phase, mag_db }
+// mag: magnitude (linear)
+// mag_db: magnitude in dB (20*log10(mag))
+// phase: phase in degrees
+export fn bode(sys, omega) {
+    resp = freqresp(sys, omega)
+    n_w = len(omega)
+
+    loop = evolve { mag = [], mag_db = [], phase = [], i = 0 } while (i < n_w) {
+        h = resp.H[i]
+        m = abs(h)
+        p = arg(h) * 180 / PI  // Convert to degrees
+        db = 20 * log10(m)
+
+        mag' = push(mag, m)
+        mag_db' = push(mag_db, db)
+        phase' = push(phase, p)
+        i' = i + 1
+    }
+
+    return({
+        omega = omega,
+        mag = loop.mag,
+        mag_db = loop.mag_db,
+        phase = unwrap_phase(loop.phase)
+    })
+}
+
+// Unwrap phase to avoid discontinuities at +/- 180 deg
+fn unwrap_phase(phase) {
+    n = len(phase)
+    loop = evolve { p = [phase[0]], prev = phase[0], i = 1 } while (i < n) {
+        diff = phase[i] - phase[i - 1]
+        // If jump > 180, subtract 360; if < -180, add 360
+        adj = if (diff > 180) {
+            return(-360)
+        } elif (diff < -180) {
+            return(360)
+        } else {
+            return(0)
+        }
+        new_p = prev + (phase[i] - phase[i - 1]) + adj
+        p' = push(p, new_p)
+        prev' = new_p
+        i' = i + 1
+    }
+    return(loop.p)
+}
+
+// =============================================================================
+// NYQUIST PLOT DATA
+// =============================================================================
+
+// nyquist(sys, omega) - Compute Nyquist plot data
+// Returns: { omega, real, imag } for plotting
+export fn nyquist(sys, omega) {
+    resp = freqresp(sys, omega)
+    n_w = len(omega)
+
+    loop = evolve { re = [], im = [], i = 0 } while (i < n_w) {
+        h = resp.H[i]
+        re' = push(re, h.re)
+        im' = push(im, h.im)
+        i' = i + 1
+    }
+
+    return({ omega = omega, real = loop.re, imag = loop.im })
+}
+
+// =============================================================================
+// STABILITY MARGINS
+// =============================================================================
+
+// margin(sys) - Compute gain and phase margins
+// Returns: { gm, pm, wcg, wcp }
+// gm: gain margin (linear)
+// pm: phase margin (degrees)
+// wcg: gain crossover frequency (where |H| = 1)
+// wcp: phase crossover frequency (where phase = -180)
+export fn margin(sys) {
+    // Generate frequency range for analysis
+    omega = logspace(-2, 3, 500)
+    bode_data = bode(sys, omega)
+
+    n_w = len(omega)
+
+    // Find phase crossover (phase = -180 deg)
+    // Gain margin = 1 / |H| at this frequency
+    phase_cross = evolve { wcg = 0, gm = 1e10, found = false, i = 1 } while (i < n_w) {
+        p_prev = bode_data.phase[i - 1]
+        p_curr = bode_data.phase[i]
+
+        // Check if phase crosses -180
+        crossed = (p_prev > -180 && p_curr <= -180) || (p_prev < -180 && p_curr >= -180)
+
+        wcg' = if (crossed && !found) { return(omega[i]) } else { return(wcg) }
+        gm' = if (crossed && !found) { return(1 / bode_data.mag[i]) } else { return(gm) }
+        found' = if (crossed) { return(true) } else { return(found) }
+        i' = i + 1
+    }
+
+    // Find gain crossover (|H| = 1, or 0 dB)
+    // Phase margin = phase + 180 at this frequency
+    gain_cross = evolve { wcp = 0, pm = 180, found = false, i = 1 } while (i < n_w) {
+        m_prev = bode_data.mag_db[i - 1]
+        m_curr = bode_data.mag_db[i]
+
+        // Check if magnitude crosses 0 dB (from above)
+        crossed = (m_prev > 0 && m_curr <= 0)
+
+        wcp' = if (crossed && !found) { return(omega[i]) } else { return(wcp) }
+        pm' = if (crossed && !found) { return(bode_data.phase[i] + 180) } else { return(pm) }
+        found' = if (crossed) { return(true) } else { return(found) }
+        i' = i + 1
+    }
+
+    return({
+        gm = phase_cross.gm,
+        pm = gain_cross.pm,
+        wcg = phase_cross.wcg,
+        wcp = gain_cross.wcp
+    })
+}
+
+// =============================================================================
+// BANDWIDTH
+// =============================================================================
+
+// bandwidth(sys) - Find -3dB bandwidth
+// Returns frequency where |H| drops to 1/sqrt(2) of DC gain
+export fn bandwidth(sys) {
+    omega = logspace(-2, 4, 1000)
+    bode_data = bode(sys, omega)
+
+    // DC gain (at lowest frequency)
+    dc = bode_data.mag[0]
+    threshold = dc / sqrt(2)  // -3dB point
+
+    n_w = len(omega)
+    bw_loop = evolve { bw = omega[n_w - 1], i = 1 } while (i < n_w) {
+        // Find first crossing below threshold
+        bw' = if (bode_data.mag[i] < threshold && bode_data.mag[i - 1] >= threshold) {
+            return(omega[i])
+        } else {
+            return(bw)
+        }
+        i' = i + 1
+    }
+
+    return(bw_loop.bw)
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// Generate logarithmically spaced frequencies
+fn logspace(start, stop, n) {
+    step = (stop - start) / (n - 1)
+    result = evolve { arr = [], i = 0 } while (i < n) {
+        exp_val = start + i * step
+        arr' = push(arr, 10 ^ exp_val)
+        i' = i + 1
+    }
+    return(result.arr)
+}
+
+// Note: Complex arithmetic (+, -, *, /) uses operator overloading
+
+// Complex vector dot product (real coefficients, complex values)
+fn cvec_dot(real_vec, complex_vec) {
+    n = len(real_vec)
+    result = evolve { acc = complex(0, 0), i = 0 } while (i < n) {
+        term = complex(real_vec[i], 0) * complex_vec[i]
+        acc' = acc + term
+        i' = i + 1
+    }
+    return(result.acc)
+}
+
+// Get row from real matrix
+fn get_row(A, i) {
+    return(A[i])
+}
+
+// Get column from real matrix as complex array
+fn get_col_complex(A, j) {
+    s = _shape(A)
+    m = s[0]
+    result = evolve { c = [], i = 0 } while (i < m) {
+        c' = push(c, complex(A[i][j], 0))
+        i' = i + 1
+    }
+    return(result.c)
+}
+
+// Solve complex linear system using Gaussian elimination
+fn csolve_vec(A, b, n) {
+    // Augment [A | b]
+    aug = augment_complex(A, b, n)
+
+    // Forward elimination
+    fwd = evolve { mat = aug, k = 0 } while (k < n) {
+        // Find pivot
+        pivot_row = find_pivot(mat, k, n)
+        mat_swapped = swap_rows(mat, k, pivot_row)
+
+        // Eliminate below
+        mat' = eliminate_below(mat_swapped, k, n)
+        k' = k + 1
+    }
+
+    // Back substitution
+    x = back_substitute_complex(fwd.mat, n)
+    return(x)
+}
+
+// Augment complex matrix with vector
+fn augment_complex(A, b, n) {
+    result = evolve { rows = [], i = 0 } while (i < n) {
+        row = A[i]
+        new_row_loop = evolve { r = [], j = 0 } while (j < n + 1) {
+            val = if (j < n) { return(row[j]) } else { return(b[i]) }
+            r' = push(r, val)
+            j' = j + 1
+        }
+        rows' = push(rows, new_row_loop.r)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Find pivot row (largest magnitude)
+fn find_pivot(mat, k, n) {
+    result = evolve { max_val = abs(mat[k][k]), max_idx = k, i = k + 1 } while (i < n) {
+        curr = abs(mat[i][k])
+        max_val' = if (curr > max_val) { return(curr) } else { return(max_val) }
+        max_idx' = if (curr > max_val) { return(i) } else { return(max_idx) }
+        i' = i + 1
+    }
+    return(result.max_idx)
+}
+
+// Swap rows in matrix
+fn swap_rows(mat, i, j) {
+    n = len(mat)
+    result = evolve { rows = [], k = 0 } while (k < n) {
+        row = if (k == i) {
+            return(mat[j])
+        } elif (k == j) {
+            return(mat[i])
+        } else {
+            return(mat[k])
+        }
+        rows' = push(rows, row)
+        k' = k + 1
+    }
+    return(result.rows)
+}
+
+// Eliminate below pivot
+fn eliminate_below(mat, k, n) {
+    pivot = mat[k][k]
+    result = evolve { rows = [], i = 0 } while (i < n) {
+        new_row = if (i <= k) {
+            return(mat[i])
+        } else {
+            factor = mat[i][k] / pivot
+            return(row_subtract(mat[i], mat[k], factor, n + 1))
+        }
+        rows' = push(rows, new_row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// row_i - factor * row_k
+fn row_subtract(row_i, row_k, factor, m) {
+    result = evolve { r = [], j = 0 } while (j < m) {
+        val = row_i[j] - factor * row_k[j]
+        r' = push(r, val)
+        j' = j + 1
+    }
+    return(result.r)
+}
+
+// Back substitution for complex system
+fn back_substitute_complex(aug, n) {
+    // Start from bottom row
+    x_init = evolve { x = [], i = 0 } while (i < n) {
+        x' = push(x, complex(0, 0))
+        i' = i + 1
+    }
+
+    result = evolve { x = x_init.x, i = n - 1 } while (i >= 0) {
+        // x[i] = (aug[i][n] - sum(aug[i][j] * x[j] for j > i)) / aug[i][i]
+        sum_loop = evolve { acc = complex(0, 0), j = i + 1 } while (j < n) {
+            acc' = acc + aug[i][j] * x[j]
+            j' = j + 1
+        }
+        x_i = (aug[i][n] - sum_loop.acc) / aug[i][i]
+        x' = set_element(x, i, x_i)
+        i' = i - 1
+    }
+
+    return(result.x)
+}
+
+// Set element in array (returns new array)
+fn set_element(arr, idx, val) {
+    n = len(arr)
+    result = evolve { r = [], i = 0 } while (i < n) {
+        elem = if (i == idx) { return(val) } else { return(arr[i]) }
+        r' = push(r, elem)
+        i' = i + 1
+    }
+    return(result.r)
+}

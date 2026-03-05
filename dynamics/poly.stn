@@ -1,0 +1,477 @@
+// poly.stn - Polynomial Operations Standard Library
+// Provides polynomial creation, evaluation, and manipulation functions
+//
+// Usage: import polyval, roots, conv from dynamics/poly
+
+// Import from linalg for matrix operations
+import eigvals from linalg
+import solve from linalg
+import zeros from primitives
+import shape as _shape from primitives
+
+// Import complex for handling complex roots
+import Complex, complex as _complex from complex
+
+// =============================================================================
+// POLYNOMIAL EVALUATION
+// =============================================================================
+
+// polyval - Polynomial evaluation using Horner's method
+// p = [p_n, p_{n-1}, ..., p_1, p_0] represents p_n*x^n + ... + p_1*x + p_0
+//
+// Type-based overloading: the type checker resolves which overload to call
+// at compile time based on the argument types.
+
+// Overload 1: Scalar evaluation
+export fn polyval(p: array<num,1>, x: num) -> num {
+    n = len(p)
+    loop = evolve { acc = p[0], i = 1 } while (i < n) {
+        acc' = acc * x + p[i]
+        i' = i + 1
+    }
+    return(loop.acc)
+}
+
+// Overload 2: Complex evaluation
+export fn polyval(p: array<num,1>, z: Complex) -> Complex {
+    n = len(p)
+    zr = z.re
+    zi = z.im
+    loop = evolve { accr = p[0], acci = 0, i = 1 } while (i < n) {
+        // Complex multiply: (accr + acci*j) * (zr + zi*j)
+        new_r = accr * zr - acci * zi + p[i]
+        new_i = accr * zi + acci * zr
+        accr' = new_r
+        acci' = new_i
+        i' = i + 1
+    }
+    return(_complex(loop.accr, loop.acci))
+}
+
+// Overload 3: Array evaluation (evaluate at each point)
+export fn polyval(p: array<num,1>, xs: array<num,1>) -> array<num,1> {
+    m = len(xs)
+    loop = evolve { result = [], i = 0 } while (i < m) {
+        val = polyval(p, xs[i])
+        result' = push(result, val)
+        i' = i + 1
+    }
+    return(loop.result)
+}
+
+// Helper to get array rank
+import rank as _rank from primitives
+
+// =============================================================================
+// POLYNOMIAL ARITHMETIC
+// =============================================================================
+
+// conv(p1, p2) - Polynomial multiplication (discrete convolution)
+// Result has degree = deg(p1) + deg(p2)
+export fn conv(p1, p2) {
+    n1 = len(p1)
+    n2 = len(p2)
+
+    if (n1 == 0 || n2 == 0) {
+        return([])
+    }
+
+    // Result length is n1 + n2 - 1
+    nResult = n1 + n2 - 1
+
+    // Convolve
+    result := evolve { result = [], k = 0 } while (k < nResult) {
+        // c[k] = sum_{j} p1[j] * p2[k-j] where both indices valid
+        acc := evolve { acc = 0, j = 0 } while (j < n1) {
+            idx2 = k - j
+            acc' = if (idx2 >= 0 && idx2 < n2) {
+                return(acc + p1[j] * p2[idx2])
+            } else {
+                return(acc)
+            }
+            j' = j + 1
+        }
+        result' = push(result, acc)
+        k' = k + 1
+    }
+    return(result)
+}
+
+// polymul(p1, p2) - Alias for conv
+export fn polymul(p1, p2) = conv(p1, p2)
+
+// polyadd(p1, p2) - Add two polynomials
+// Pads shorter polynomial with leading zeros
+export fn polyadd(p1, p2) {
+    n1 = len(p1)
+    n2 = len(p2)
+    n = if (n1 > n2) { return(n1) } else { return(n2) }
+
+    // Pad with leading zeros
+    pad1 = n - n1
+    pad2 = n - n2
+
+    result := evolve { result = [], i = 0 } while (i < n) {
+        v1 = if (i < pad1) { return(0) } else { return(p1[i - pad1]) }
+        v2 = if (i < pad2) { return(0) } else { return(p2[i - pad2]) }
+        result' = push(result, v1 + v2)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// polysub(p1, p2) - Subtract two polynomials (p1 - p2)
+export fn polysub(p1, p2) {
+    n1 = len(p1)
+    n2 = len(p2)
+    n = if (n1 > n2) { return(n1) } else { return(n2) }
+
+    pad1 = n - n1
+    pad2 = n - n2
+
+    result := evolve { result = [], i = 0 } while (i < n) {
+        v1 = if (i < pad1) { return(0) } else { return(p1[i - pad1]) }
+        v2 = if (i < pad2) { return(0) } else { return(p2[i - pad2]) }
+        result' = push(result, v1 - v2)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// deconv(p1, p2) - Polynomial division
+// Returns { q, r } where p1 = p2 * q + r
+export fn deconv(p1, p2) {
+    n1 = len(p1)
+    n2 = len(p2)
+
+    if (n2 == 0) {
+        error("deconv: division by zero polynomial")
+    }
+
+    if (n1 < n2) {
+        // Quotient is zero, remainder is p1
+        return({ q = [0], r = p1 })
+    }
+
+    // Polynomial long division
+    nq = n1 - n2 + 1
+
+    // Copy p1 to remainder
+    rem_state = evolve { rem = [], i = 0 } while (i < n1) {
+        rem' = push(rem, p1[i])
+        i' = i + 1
+    }
+    rem_arr = rem_state.rem
+
+    // Divide
+    result = evolve { q = [], rem = rem_arr, i = 0 } while (i < nq) {
+        // Leading coefficient of quotient
+        coef = rem[i] / p2[0]
+        q' = push(q, coef)
+
+        // Subtract coef * p2 from rem
+        remNew := evolve { remNew = [], j = 0 } while (j < n1) {
+            val = if (j >= i && j < i + n2) {
+                return(rem[j] - coef * p2[j - i])
+            } else {
+                return(rem[j])
+            }
+            remNew' = push(remNew, val)
+            j' = j + 1
+        }
+        rem' = remNew
+        i' = i + 1
+    }
+
+    // Extract remainder (last n2-1 coefficients, or strip leading zeros)
+    remFinal := evolve { remFinal = [], i = nq } while (i < n1) {
+        remFinal' = push(remFinal, result.rem[i])
+        i' = i + 1
+    }
+
+    // Handle empty remainder
+    remResult = if (len(remFinal) == 0) { return([0]) } else { return(remFinal) }
+
+    return({ q = result.q, r = remResult })
+}
+
+// =============================================================================
+// POLYNOMIAL CALCULUS
+// =============================================================================
+
+// polyder(p) - Derivative of polynomial
+// p = [p_n, ..., p_1, p_0] -> [n*p_n, (n-1)*p_{n-1}, ..., p_1]
+export fn polyder(p) {
+    n = len(p)
+    if (n <= 1) {
+        return([0])
+    }
+
+    // Derivative: coefficient p_k becomes k * p_k for power k
+    // Since p is stored highest power first, p[i] has power (n-1-i)
+    result := evolve { result = [], i = 0 } while (i < n - 1) {
+        power = n - 1 - i
+        result' = push(result, power * p[i])
+        i' = i + 1
+    }
+    return(result)
+}
+
+// polyint(p, c) - Integral of polynomial with constant term c
+// p = [p_n, ..., p_0] -> [p_n/(n+1), p_{n-1}/n, ..., p_0, c]
+export fn polyint(p, c) {
+    n = len(p)
+
+    if (n == 0) {
+        return([c])
+    }
+
+    // Integral: coefficient p_k becomes p_k / (k+1) for power k
+    // p[i] has power (n-1-i), integrates to power (n-i)
+    result := evolve { result = [], i = 0 } while (i < n) {
+        power = n - i  // new power after integration
+        result' = push(result, p[i] / power)
+        i' = i + 1
+    }
+
+    // Add constant term
+    resultFinal = push(result, c)
+    return(resultFinal)
+}
+
+// =============================================================================
+// POLYNOMIAL ROOTS
+// =============================================================================
+
+// roots(p) - Find roots of polynomial using companion matrix eigenvalues
+// p = [p_n, ..., p_1, p_0] (leading coefficient first)
+// Returns array of roots (possibly complex)
+export fn roots(p) {
+    // Remove leading zeros
+    pTrimmed = _trim_leading_zeros(p)
+    n = len(pTrimmed)
+
+    if (n <= 1) {
+        // Constant or empty polynomial has no roots
+        // Return typed empty array for consistency with eigvals return(type)
+        emptyRoots: array<Complex,1> = []
+        return(emptyRoots)
+    }
+
+    if (n == 2) {
+        // Linear: p[0]*x + p[1] = 0 -> x = -p[1]/p[0]
+        // Return as complex for consistency
+        linearRoot: array<Complex,1> = [_complex(-pTrimmed[1] / pTrimmed[0], 0)]
+        return(linearRoot)
+    }
+
+    // Build companion matrix
+    // For monic polynomial x^n + a_{n-1}*x^{n-1} + ... + a_0
+    // Companion matrix is:
+    // [0  0  0 ... -a_0]
+    // [1  0  0 ... -a_1]
+    // [0  1  0 ... -a_2]
+    // ...
+    // [0  0  1 ... -a_{n-1}]
+
+    // First, make polynomial monic (divide by leading coefficient)
+    lead = pTrimmed[0]
+    deg = n - 1
+
+    // Build companion matrix
+    C := evolve { C = [], i = 0 } while (i < deg) {
+        row := evolve { row = [], j = 0 } while (j < deg) {
+            val = if (j == deg - 1) {
+                // Last column: -a_i / lead where a_i is coefficient of x^i
+                // p = [p_n, p_{n-1}, ..., p_1, p_0]
+                // For row i, we want coefficient of x^i, which is p[n-1-i] = p[deg-i]
+                return(-pTrimmed[deg - i] / lead)
+            } elif (i > 0 && j == i - 1) {
+                // Subdiagonal
+                return(1)
+            } else {
+                return(0)
+            }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        C' = push(C, row)
+        i' = i + 1
+    }
+
+    // Eigenvalues of companion matrix are the roots
+    return(eigvals(C))
+}
+
+// Internal: remove leading zeros from polynomial
+fn _trim_leading_zeros(p) {
+    n = len(p)
+    // Find first non-zero
+    idx = evolve (idx = 0) while (idx < n && abs(p[idx]) < 1e-14) {
+        idx' = idx + 1
+    }
+
+    if (idx >= n) {
+        return([0])
+    }
+
+    // Copy from idx onwards
+    result := evolve { result = [], i = idx } while (i < n) {
+        result' = push(result, p[i])
+        i' = i + 1
+    }
+    return(result)
+}
+
+// =============================================================================
+// POLYNOMIAL CONSTRUCTION
+// =============================================================================
+
+// poly_from_roots(r) - Create monic polynomial from roots
+// Returns [1, -sum(r), sum(r_i*r_j), ..., (-1)^n*prod(r)]
+export fn poly_from_roots(r) {
+    n = len(r)
+
+    if (n == 0) {
+        return([1])
+    }
+
+    // Start with (x - r[0])
+    p = [1, -r[0]]
+
+    // Multiply by (x - r[i]) for each remaining root
+    loop = evolve { poly = p, i = 1 } while (i < n) {
+        // Multiply p by [1, -r[i]]
+        factor = [1, -r[i]]
+        poly' = conv(poly, factor)
+        i' = i + 1
+    }
+
+    return(loop.poly)
+}
+
+// =============================================================================
+// POLYNOMIAL FITTING
+// =============================================================================
+
+// polyfit(x, y, n) - Fit polynomial of degree n to data (x, y)
+// Returns coefficients [p_n, p_{n-1}, ..., p_0] (highest power first)
+// Uses least squares via normal equations
+export fn polyfit(x, y, n) {
+    m = len(x)
+
+    if (m != len(y)) {
+        error("polyfit: x and y must have same length")
+    }
+
+    if (m <= n) {
+        error("polyfit: need more data points than polynomial degree")
+    }
+
+    // Build Vandermonde matrix A where A[i][j] = x[i]^(n-j)
+    loopA = evolve { A = [], i = 0 } while (i < m) {
+        row := evolve { row = [], j = 0 } while (j <= n) {
+            power = n - j
+            val := evolve { val = 1, k = 0 } while (k < power) {
+                val' = val * x[i]
+                k' = k + 1
+            }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        A' = push(A, row)
+        i' = i + 1
+    }
+    A = loopA.A
+
+    // Transpose A manually (m x (n+1) -> (n+1) x m)
+    loopAt = evolve { At = [], i = 0 } while (i <= n) {
+        row := evolve { row = [], j = 0 } while (j < m) {
+            row' = push(row, A[j][i])
+            j' = j + 1
+        }
+        At' = push(At, row)
+        i' = i + 1
+    }
+    At = loopAt.At
+
+    // AtA = At @ A (manual matrix multiply: (n+1)xm @ mx(n+1) = (n+1)x(n+1))
+    loopAtA = evolve { AtA = [], i = 0 } while (i <= n) {
+        row := evolve { row = [], j = 0 } while (j <= n) {
+            acc := evolve { acc = 0, k = 0 } while (k < m) {
+                acc' = acc + At[i][k] * A[k][j]
+                k' = k + 1
+            }
+            row' = push(row, acc)
+            j' = j + 1
+        }
+        AtA' = push(AtA, row)
+        i' = i + 1
+    }
+    AtA = loopAtA.AtA
+
+    // Aty = At @ y (manual: (n+1)xm @ mx1 = (n+1)x1)
+    loopAty = evolve { Aty = [], i = 0 } while (i <= n) {
+        acc := evolve { acc = 0, j = 0 } while (j < m) {
+            acc' = acc + At[i][j] * y[j]
+            j' = j + 1
+        }
+        Aty' = push(Aty, acc)
+        i' = i + 1
+    }
+    Aty = loopAty.Aty
+
+    // Solve AtA @ p = Aty
+    p = solve(AtA, Aty)
+    return(p)
+}
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+// polystr(p) - Return string representation of polynomial
+// For display purposes
+export fn polystr(p) {
+    n = len(p)
+    if (n == 0) {
+        return("0")
+    }
+
+    deg = n - 1
+    s := evolve { s = "", i = 0 } while (i < n) {
+        coef = p[i]
+        power = deg - i
+
+        if (abs(coef) > 1e-14) {
+            // Add sign
+            sNew = if (len(s) > 0 && coef > 0) {
+                return(s + " + ")
+            } elif (len(s) > 0 && coef < 0) {
+                return(s + " - ")
+            } elif (coef < 0) {
+                return("-")
+            } else {
+                return(s)
+            }
+
+            absCoef = abs(coef)
+
+            // Add coefficient and power
+            s' = if (power == 0) {
+                return(sNew + str(absCoef))
+            } elif (power == 1) {
+                return(if (absCoef == 1) { return(sNew + "x") } else { return(sNew + str(absCoef) + "*x") })
+            } else {
+                return(if (absCoef == 1) { return(sNew + "x^" + str(power)) } else { return(sNew + str(absCoef) + "*x^" + str(power)) })
+            }
+        } else {
+            s' = s
+        }
+
+        i' = i + 1
+    }
+
+    result = if (len(s) == 0) { return("0") } else { return(s) }
+    return(result)
+}

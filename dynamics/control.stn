@@ -1,0 +1,654 @@
+// control.stn - Control Design Tools
+// Provides PID controllers, pole placement, LQR, controllability/observability
+//
+// Usage: import pid, place, lqr, ctrb, obsv from dynamics/control
+
+import tf, ss, poles, order from dynamics/systems
+import solve, inv, det, eye, matmul from linalg
+import sqrt from math
+// Note: poly_from_roots is defined locally in this module
+import zeros as _zeros from primitives
+import shape as _shape from primitives
+
+// =============================================================================
+// PID CONTROLLER
+// =============================================================================
+
+// pid(Kp, Ki, Kd) - Create PID controller transfer function
+// C(s) = Kp + Ki/s + Kd*s = (Kd*s^2 + Kp*s + Ki) / s
+// Returns transfer function
+export fn pid(Kp, Ki, Kd) {
+    // Handle special cases
+    return(if (Kd == 0 && Ki == 0) {
+        // P only: C(s) = Kp = Kp/1
+        return(tf([Kp], [1]))
+    } elif (Kd == 0) {
+        // PI: C(s) = Kp + Ki/s = (Kp*s + Ki) / s
+        return(tf([Kp, Ki], [1, 0]))
+    } elif (Ki == 0) {
+        // PD: C(s) = Kp + Kd*s = (Kd*s + Kp) / 1
+        return(tf([Kd, Kp], [1]))
+    } else {
+        // Full PID: C(s) = (Kd*s^2 + Kp*s + Ki) / s
+        return(tf([Kd, Kp, Ki], [1, 0]))
+    })
+}
+
+// pid2(Kp, Ki, Kd, Tf) - PID with derivative filter
+// C(s) = Kp + Ki/s + Kd*s/(1 + Tf*s)
+// Tf: derivative filter time constant
+export fn pid2(Kp, Ki, Kd, Tf) {
+    // Approximate form using series of TFs
+    // For now, return(standard PID (filter adds complexity))
+    return(pid(Kp, Ki, Kd))
+}
+
+// =============================================================================
+// CONTROLLABILITY
+// =============================================================================
+
+// ctrb(A, B) - Controllability matrix
+// C = [B, A*B, A^2*B, ..., A^(n-1)*B]
+// Returns n x n matrix for single-input systems
+export fn ctrb(A, B) {
+    sh = _shape(A)
+    n = sh[0]
+
+    // Build controllability matrix row by row
+    // First compute all column vectors: B, AB, A^2B, ...
+    // Store as flat list of values row-by-row
+
+    // Compute A powers times B and build result row-by-row
+    row_loop = evolve { rows = [], i = 0 } while (i < n) {
+        // For row i, collect element [i][0] from each A^j * B
+        col_loop = evolve { row = [], A_pow_B = B, j = 0 } while (j < n) {
+            // Get element [i][0] from current A_pow_B
+            elem = A_pow_B[i][0]
+            row' = push(row, elem)
+            // Compute next power
+            A_pow_B' = A @ A_pow_B
+            j' = j + 1
+        }
+        rows' = push(rows, col_loop.row)
+        i' = i + 1
+    }
+
+    return(row_loop.rows)
+}
+
+// is_controllable(A, B) - Check controllability
+// System is controllable iff rank(ctrb(A,B)) = n
+export fn is_controllable(A, B) {
+    C = ctrb(A, B)
+    sh = _shape(A)
+    n = sh[0]
+
+    // Check rank by looking at determinant of submatrices
+    // For square C, check det != 0
+    sh_c = _shape(C)
+    m = sh_c[0]
+    k = sh_c[1]
+
+    // If C is square (single input), check determinant
+    return(if (m == k) {
+        return(abs(det(C)) > 1e-10)
+    } else {
+        // For multi-input, check rank via pivoting
+        return(matrix_rank(C) >= n)
+    })
+}
+
+// =============================================================================
+// OBSERVABILITY
+// =============================================================================
+
+// obsv(A, C) - Observability matrix
+// O = [C; C*A; C*A^2; ...; C*A^(n-1)]
+// Returns n x n matrix for single-output systems
+export fn obsv(A, C_mat) {
+    sh = _shape(A)
+    n = sh[0]
+
+    // Build observability matrix row by row
+    // Row block i is C * A^i, which is a 1 x n row
+    init_rows: array<num,2> = []
+    row_loop = evolve { rows = init_rows, C_A_pow = C_mat, i = 0 } while (i < n) {
+        // C_A_pow is 1 x n, extract as row
+        row = C_A_pow[0]  // First (only) row of the 1xn matrix
+        rows' = push(rows, row)
+        // Compute next power: C * A^(i+1)
+        C_A_pow' = C_A_pow @ A
+        i' = i + 1
+    }
+
+    return(row_loop.rows)
+}
+
+// is_observable(A, C) - Check observability
+export fn is_observable(A, C_mat) {
+    O = obsv(A, C_mat)
+    sh = _shape(A)
+    n = sh[0]
+
+    sh_o = _shape(O)
+    m = sh_o[0]
+    k = sh_o[1]
+
+    return(if (m == k) {
+        return(abs(det(O)) > 1e-10)
+    } else {
+        return(matrix_rank(O) >= n)
+    })
+}
+
+// =============================================================================
+// POLE PLACEMENT
+// =============================================================================
+
+// place(A, B, p) - Pole placement using Ackermann's formula
+// A: system matrix (n x n)
+// B: input matrix (n x 1) - single input
+// p: desired pole locations (array of n values)
+// Returns: K such that eig(A - B*K) = p
+export fn place(A, B, p) {
+    return(acker(A, B, p))
+}
+
+// acker(A, B, p) - Ackermann's formula for pole placement
+// K = [0 0 ... 0 1] * inv(ctrb(A,B)) * phi(A)
+// where phi(s) = (s-p1)(s-p2)...(s-pn) is the desired characteristic polynomial
+export fn acker(A, B, p) {
+    sh = _shape(A)
+    n = sh[0]
+
+    // Build controllability matrix
+    C_mat = ctrb(A, B)
+
+    // Compute desired characteristic polynomial coefficients
+    // phi(s) = (s-p1)(s-p2)...(s-pn)
+    phi_coeffs = poly_from_roots(p)
+
+    // Evaluate phi(A) = A^n + c1*A^(n-1) + ... + cn*I
+    phi_A = poly_matrix(phi_coeffs, A)
+
+    // K = e_n^T * inv(C) * phi(A)
+    // where e_n = [0, 0, ..., 1]
+    C_inv = inv(C_mat)
+    temp = mat_mul(C_inv, phi_A)
+
+    // Extract last row (e_n^T * temp)
+    K = temp[n - 1]
+
+    return(K)
+}
+
+// Evaluate polynomial with matrix argument: p(A)
+fn poly_matrix(coeffs, A) {
+    sh = _shape(A)
+    n = sh[0]
+    m = len(coeffs)
+
+    // coeffs = [c0, c1, ..., cn] where poly = c0*s^n + c1*s^(n-1) + ... + cn
+    // p(A) = c0*A^n + c1*A^(n-1) + ... + cn*I
+
+    result = evolve { acc = mat_scalar_mul(eye(n), coeffs[m - 1]), A_pow = eye(n), i = m - 2 } while (i >= 0) {
+        A_pow' = mat_mul(A_pow, A)
+        term = mat_scalar_mul(A_pow', coeffs[i])
+        acc' = mat_add(acc, term)
+        i' = i - 1
+    }
+
+    return(result.acc)
+}
+
+// =============================================================================
+// LINEAR QUADRATIC REGULATOR
+// =============================================================================
+
+// lqr(A, B, Q, R) - Linear Quadratic Regulator
+// Minimizes J = integral(x'Qx + u'Ru) dt
+// Returns: { K, S, E }
+// K: optimal gain matrix
+// S: solution to Riccati equation
+// E: closed-loop eigenvalues
+export fn lqr(A, B, Q, R) {
+    sh = _shape(A)
+    n = sh[0]
+
+    // Solve continuous-time algebraic Riccati equation:
+    // A'S + SA - SBR^(-1)B'S + Q = 0
+
+    // Use iterative method (simple fixed-point iteration)
+    R_inv = inv(R)
+    S = solve_care(A, B, Q, R_inv, n)
+
+    // K = R^(-1) * B' * S
+    K = mat_mul(R_inv, mat_mul(transpose(B), S))
+
+    // Closed-loop eigenvalues
+    A_cl = mat_sub(A, mat_mul(B, K))
+    E_sys = ss(A_cl, B, eye(n), zeros_mat(n, _shape(B)[1]))
+    E = poles(E_sys)
+
+    return({ K = K, S = S, E = E })
+}
+
+// Solve continuous algebraic Riccati equation using iteration
+fn solve_care(A, B, Q, R_inv, n) {
+    // Initialize with identity
+    S = eye(n)
+    At = transpose(A)
+    Bt = transpose(B)
+    BR_inv_Bt = mat_mul(mat_mul(B, R_inv), Bt)
+
+    // Iterate: S_new = Q + A'S + SA - S*B*R^(-1)*B'*S
+    // Use discrete approximation with small dt
+    dt = 0.01
+    max_iter = 1000
+
+    result = evolve { S_curr = S, i = 0 } while (i < max_iter) {
+        // dS/dt = Q + A'S + SA - S*B*R^(-1)*B'*S
+        term1 = mat_mul(At, S_curr)
+        term2 = mat_mul(S_curr, A)
+        term3 = mat_mul(mat_mul(S_curr, BR_inv_Bt), S_curr)
+
+        dS = mat_add(mat_add(Q, term1), mat_sub(term2, term3))
+        S_curr' = mat_add(S_curr, mat_scalar_mul(dS, dt))
+
+        // Check convergence (simplified: just run iterations)
+        i' = i + 1
+    }
+
+    return(result.S_curr)
+}
+
+// =============================================================================
+// ROOT LOCUS
+// =============================================================================
+
+// rlocus(sys, K_vals) - Compute root locus
+// sys: open-loop transfer function
+// K_vals: array of gain values to evaluate
+// Returns: { K, roots } where roots[i] is array of pole locations at K[i]
+export fn rlocus(sys, K_vals) {
+    num = sys.num
+    den = sys.den
+    n_k = len(K_vals)
+
+    // For each K, compute poles of 1 + K*G(s) = 0
+    // Characteristic equation: den(s) + K*num(s) = 0
+    loop = evolve { roots_arr = [], i = 0 } while (i < n_k) {
+        K = K_vals[i]
+        // char_poly = den + K*num (with proper alignment)
+        char_poly = poly_add_scaled(den, num, K)
+        r = roots_complex(char_poly)
+        roots_arr' = push(roots_arr, r)
+        i' = i + 1
+    }
+
+    return({ K = K_vals, roots = loop.roots_arr })
+}
+
+// Add polynomials: p1 + k*p2 (handles different lengths)
+fn poly_add_scaled(p1, p2, k) {
+    n1 = len(p1)
+    n2 = len(p2)
+    n = if (n1 > n2) { return(n1) } else { return(n2) }
+
+    // Pad shorter poly with leading zeros
+    p1_pad = pad_left(p1, n, 0)
+    p2_pad = pad_left(p2, n, 0)
+
+    result = evolve { r = [], i = 0 } while (i < n) {
+        r' = push(r, p1_pad[i] + k * p2_pad[i])
+        i' = i + 1
+    }
+    return(result.r)
+}
+
+// Pad array with value on left
+fn pad_left(arr, n, val) {
+    curr_len = len(arr)
+    pad_len = n - curr_len
+
+    return(if (pad_len <= 0) {
+        return(arr)
+    } else {
+        pad_loop = evolve { r = [], i = 0 } while (i < pad_len) {
+            r' = push(r, val)
+            i' = i + 1
+        }
+        // Concatenate
+        concat_loop = evolve { r = pad_loop.r, i = 0 } while (i < curr_len) {
+            r' = push(r, arr[i])
+            i' = i + 1
+        }
+        return(concat_loop.r)
+    })
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// Create polynomial from roots: (s-r1)(s-r2)...(s-rn)
+fn poly_from_roots(r) {
+    n = len(r)
+
+    // Start with (s - r[0]) = [1, -r[0]]
+    result = evolve { p = [1, -r[0]], i = 1 } while (i < n) {
+        // Multiply by (s - r[i])
+        p' = conv(p, [1, -r[i]])
+        i' = i + 1
+    }
+
+    return(result.p)
+}
+
+// Polynomial convolution (multiplication)
+fn conv(a, b) {
+    na = len(a)
+    nb = len(b)
+    nc = na + nb - 1
+
+    result = evolve { c = [], i = 0 } while (i < nc) {
+        sum_loop = evolve { acc = 0, j = 0 } while (j < na) {
+            k = i - j
+            val = if (k >= 0 && k < nb) { return(a[j] * b[k]) } else { return(0) }
+            acc' = acc + val
+            j' = j + 1
+        }
+        c' = push(c, sum_loop.acc)
+        i' = i + 1
+    }
+    return(result.c)
+}
+
+// Placeholder for complex roots (uses real approximation)
+fn roots_complex(p) {
+    // For now, use companion matrix eigenvalue approach from poly.stn
+    // This is a simplified version
+    n = len(p) - 1
+    return(if (n <= 0) {
+        return([])
+    } elif (n == 1) {
+        return([-p[1] / p[0]])
+    } elif (n == 2) {
+        // Quadratic formula
+        a = p[0]
+        b = p[1]
+        c = p[2]
+        disc = b * b - 4 * a * c
+        return(if (disc >= 0) {
+            sq = sqrt(disc)
+            return([(-b + sq) / (2 * a), (-b - sq) / (2 * a)])
+        } else {
+            // Complex roots - return(real parts for now)
+            re = -b / (2 * a)
+            return([re, re])
+        })
+    } else {
+        // Use companion matrix (simplified)
+        return([])
+    })
+}
+
+// Matrix rank estimation using row reduction
+fn matrix_rank(A) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+
+    // Row reduce and count non-zero rows
+    reduced = row_reduce(A)
+
+    // Count non-zero rows
+    count_loop = evolve { count = 0, i = 0 } while (i < m) {
+        is_zero = row_is_zero(reduced[i])
+        count' = if (!is_zero) { return(count + 1) } else { return(count) }
+        i' = i + 1
+    }
+
+    return(count_loop.count)
+}
+
+fn row_is_zero(row) {
+    n = len(row)
+    loop = evolve { all_zero = true, i = 0 } while (i < n && all_zero) {
+        all_zero' = abs(row[i]) < 1e-10
+        i' = i + 1
+    }
+    return(loop.all_zero)
+}
+
+fn row_reduce(A) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+
+    // Copy matrix
+    mat0 = copy_matrix(A)
+
+    pivot_row = 0
+    col_loop = evolve { mat = mat0, pr = 0, c = 0 } while (c < n && pr < m) {
+        // Find pivot
+        pivot_info = find_pivot_row(mat, pr, c, m)
+
+        mat' = if (pivot_info.found) {
+            // Swap rows
+            swapped = swap_matrix_rows(mat, pr, pivot_info.row)
+            // Eliminate below
+            eliminated = eliminate_column(swapped, pr, c, m, n)
+            return(eliminated)
+        } else {
+            return(mat)
+        }
+
+        pr' = if (pivot_info.found) { return(pr + 1) } else { return(pr) }
+        c' = c + 1
+    }
+
+    return(col_loop.mat)
+}
+
+fn find_pivot_row(mat, start_row, col, m) {
+    loop = evolve { max_val = 0, max_row = start_row, found = false, i = start_row } while (i < m) {
+        val = abs(mat[i][col])
+        max_val' = if (val > max_val) { return(val) } else { return(max_val) }
+        max_row' = if (val > max_val) { return(i) } else { return(max_row) }
+        found' = if (val > 1e-10) { return(true) } else { return(found) }
+        i' = i + 1
+    }
+    return({ row = loop.max_row, found = loop.found })
+}
+
+fn swap_matrix_rows(mat, i, j) {
+    m = len(mat)
+    result = evolve { rows = [], k = 0 } while (k < m) {
+        row = if (k == i) { return(mat[j]) } elif (k == j) { return(mat[i]) } else { return(mat[k]) }
+        rows' = push(rows, row)
+        k' = k + 1
+    }
+    return(result.rows)
+}
+
+fn eliminate_column(mat, pivot_row, col, m, n) {
+    pivot = mat[pivot_row][col]
+
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row = if (i <= pivot_row) {
+            return(mat[i])
+        } else {
+            factor = mat[i][col] / pivot
+            return(row_subtract(mat[i], mat[pivot_row], factor, n))
+        }
+        rows' = push(rows, row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+fn row_subtract(row_i, row_j, factor, n) {
+    result = evolve { r = [], k = 0 } while (k < n) {
+        r' = push(r, row_i[k] - factor * row_j[k])
+        k' = k + 1
+    }
+    return(result.r)
+}
+
+fn copy_matrix(A) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Horizontal stack of matrices
+fn hstack_all(mats) {
+    n_mats = len(mats)
+    first = mats[0]
+    sh = _shape(first)
+    m = sh[0]
+
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n_mats) {
+            mat = mats[j]
+            sh_j = _shape(mat)
+            n_j = sh_j[1]
+            col_loop = evolve { r = row, k = 0 } while (k < n_j) {
+                r' = push(r, mat[i][k])
+                k' = k + 1
+            }
+            row' = col_loop.r
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Vertical stack of matrices
+fn vstack_all(mats) {
+    n_mats = len(mats)
+    result = evolve { rows = [], i = 0 } while (i < n_mats) {
+        mat = mats[i]
+        sh = _shape(mat)
+        m = sh[0]
+        row_loop = evolve { r = rows, j = 0 } while (j < m) {
+            r' = push(r, mat[j])
+            j' = j + 1
+        }
+        rows' = row_loop.r
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix transpose
+fn transpose(A) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], j = 0 } while (j < n) {
+        row_loop = evolve { row = [], i = 0 } while (i < m) {
+            row' = push(row, A[i][j])
+            i' = i + 1
+        }
+        rows' = push(rows, row_loop.row)
+        j' = j + 1
+    }
+    return(result.rows)
+}
+
+// Matrix scalar multiplication
+fn mat_scalar_mul(A, s) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] * s)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix addition
+fn mat_add(A, B) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] + B[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix subtraction
+fn mat_sub(A, B) {
+    sh = _shape(A)
+    m = sh[0]
+    n = sh[1]
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j] - B[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Matrix multiplication
+fn mat_mul(A, B) {
+    sh_a = _shape(A)
+    sh_b = _shape(B)
+    m = sh_a[0]
+    k = sh_a[1]
+    n = sh_b[1]
+
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            dot_loop = evolve { acc = 0, l = 0 } while (l < k) {
+                acc' = acc + A[i][l] * B[l][j]
+                l' = l + 1
+            }
+            row' = push(row, dot_loop.acc)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
+
+// Create zero matrix
+fn zeros_mat(m, n) {
+    result = evolve { rows = [], i = 0 } while (i < m) {
+        row_loop = evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, 0)
+            j' = j + 1
+        }
+        rows' = push(rows, row_loop.row)
+        i' = i + 1
+    }
+    return(result.rows)
+}
