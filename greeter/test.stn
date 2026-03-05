@@ -1,0 +1,13 @@
+import double, square, hypotenuse, sum_array, scale_array from greeter
+
+print(double(21))
+print(square(7))
+print(hypotenuse(3, 4))
+
+data = [1, 2, 3, 4, 5]
+print(sum_array(data))
+
+scaled = scale_array(data, 10)
+for (s in scaled) {
+  print(s)
+}
