@@ -1,0 +1,1176 @@
+// linalg.stn - Linear Algebra Standard Library
+// Provides linear algebra operations on vectors and matrices
+//
+// Usage: import dot, norm, cross from linalg
+
+// Import math functions for internal use
+import sqrt, exp, log, pow from math
+
+// Import primitives for internal use
+import norm as _norm from primitives
+import zeros as _zeros from primitives
+import shape as _shape from primitives
+import rank as _rank from primitives
+
+// Import array update primitives for linear algebra algorithms
+// These are C runtime functions that perform immutable array copies with modifications
+// (same category as push, slice, concat — memory operations belong in C)
+import set_at as _set_at from primitives
+import swap_rows as _swap_rows from primitives
+import scale_row as _scale_row from primitives
+import add_scaled_row as _add_scaled_row from primitives
+
+// Import complex number operations for eigenvalue computations
+import Complex, complex as _complex from complex
+import mul as _cmul from complex
+import add as _cadd from complex
+import sub as _csub from complex
+import div as _cdiv from complex
+import sqrt as _csqrt from complex
+import abs as _cabs from complex
+
+// Small epsilon for numerical comparisons
+_EPS = 1e-12
+
+// =============================================================================
+// CONSTRUCTORS (from array module, primitives needed for typed arrays)
+// =============================================================================
+
+// These are also available from array module:
+// zeros(n) / zeros(m, n) - array of zeros
+// ones(n) / ones(m, n) - array of ones
+// eye(n) - identity matrix
+export zeros, ones, eye from primitives
+
+// =============================================================================
+// BASIC OPERATIONS
+// =============================================================================
+
+// dot(a, b) - dot product of two vectors
+// Pure Stone implementation using indexed assignment
+export fn dot(a, b) {
+    products[i] = a[i] * b[i]
+    return(sum(products))
+}
+
+// outer(a, b) - outer product of two vectors (primitive)
+export outer from primitives
+
+// norm(v) - Euclidean norm of vector
+// norm(A) - Frobenius norm of matrix
+export norm from primitives
+
+// transpose(A) - matrix transpose (pure Stone)
+export fn transpose(A) {
+    m = len(A)
+    if (m == 0) {
+        return([])
+    }
+    n = len(A[0])
+    result := evolve { result = [], j = 0 } while (j < n) {
+        row := evolve { row = [], i = 0 } while (i < m) {
+            row' = push(row, A[i][j])
+            i' = i + 1
+        }
+        result' = push(result, row)
+        j' = j + 1
+    }
+    return(result)
+}
+
+// trace(A) - sum of diagonal elements (pure Stone)
+export fn trace(A) {
+    s = _shape(A)
+    n = min(s[0], s[1])
+    result := evolve { result = 0, i = 0 } while(i < n) {
+        result' = result + A[i][i]
+        i' = i + 1
+    }
+    return(result)
+}
+
+// diag - overloaded primitive (creates matrix from vec OR extracts diagonal)
+// Kept as primitive due to type-based overloading
+export diag from primitives
+
+// =============================================================================
+// VECTOR OPERATIONS (pure Stone implementations)
+// =============================================================================
+
+// cross(a, b) - cross product of two 3D vectors
+export fn cross(a, b) {
+    if (len(a) != 3 || len(b) != 3) {
+        error("cross() requires 3D vectors")
+    }
+    return([
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    ])
+}
+
+// normalize(v) - normalize vector to unit length
+export fn normalize(v) {
+    n = _norm(v)
+    return(v ./ n)
+}
+
+// =============================================================================
+// MATRIX OPERATIONS
+// =============================================================================
+
+// matmul(A, B) - matrix multiplication (wrapper for @ operator)
+export fn matmul(A, B) = A @ B
+
+// =============================================================================
+// DETERMINANT
+// =============================================================================
+
+// det(A) - determinant of a square matrix using Gaussian elimination with partial pivoting
+// Works for any size square matrix
+export fn det(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("det() requires a square matrix, got shape (" + str(s[0]) + "," + str(s[1]) + ")")
+    }
+
+    if (n == 1) {
+        return(A[0][0])
+    }
+    if (n == 2) {
+        return(A[0][0] * A[1][1] - A[0][1] * A[1][0])
+    }
+
+    // General case: Gaussian elimination with partial pivoting
+    // det = (-1)^swaps * product of diagonal elements after elimination
+    result = evolve { M = A, sign = 1, k = 0 } while(k < n - 1) {
+        // Find pivot (max absolute value in column k)
+        pivotInfo = evolve { maxVal = abs(M[k][k]), maxIdx = k, i = k + 1 } while(i < n) {
+            currVal = abs(M[i][k])
+            maxVal' = if (currVal > maxVal) { return(currVal) } else { return(maxVal) }
+            maxIdx' = if (currVal > maxVal) { return(i) } else { return(maxIdx) }
+            i' = i + 1
+        }
+
+        // Check for zero pivot (singular matrix)
+        if (pivotInfo.maxVal < _EPS) {
+            // Matrix is singular, determinant is 0
+            return(0)
+        }
+
+        // Swap rows if needed
+        swapResult = if (pivotInfo.maxIdx != k) {
+            return({ M = _swap_rows(M, k, pivotInfo.maxIdx), sign = -sign })
+        } else {
+            return({ M = M, sign = sign })
+        }
+
+        // Eliminate below pivot
+        elim = evolve { Mi = swapResult.M, i = k + 1 } while(i < n) {
+            factor = -Mi[i][k] / Mi[k][k]
+            Mi' = _add_scaled_row(Mi, i, k, factor)
+            i' = i + 1
+        }
+
+        M' = elim.Mi
+        sign' = swapResult.sign
+        k' = k + 1
+    }
+
+    // Determinant is product of diagonal elements times the sign
+    prod := evolve { prod = result.sign, i = 0 } while(i < n) {
+        prod' = prod * result.M[i][i]
+        i' = i + 1
+    }
+
+    return(prod)
+}
+
+// =============================================================================
+// LINEAR SYSTEM SOLVER
+// =============================================================================
+
+// solve(A, b) - solve linear system Ax = b using Gaussian elimination
+// Returns solution vector x
+// Uses StoneArray primitives for immutable matrix operations
+export fn solve(A, b) {
+    shapeA = _shape(A)
+    n = shapeA[0]
+
+    if (shapeA[0] != shapeA[1]) {
+        error("solve() requires a square matrix A")
+    }
+    if (len(b) != n) {
+        error("solve() requires b to have same length as A dimension")
+    }
+
+    // Forward elimination with partial pivoting
+    // M and x are StoneArrays, modified immutably through primitives
+    fwdElim = evolve { M = A, x = b, k = 0 } while(k < n) {
+        // Find pivot (max absolute value in column k)
+        pivotInfo = evolve { maxVal = abs(M[k][k]), maxIdx = k, i = k + 1 } while(i < n) {
+            currVal = abs(M[i][k])
+            maxVal' = if (currVal > maxVal) { return(currVal) } else { return(maxVal) }
+            maxIdx' = if (currVal > maxVal) { return(i) } else { return(maxIdx) }
+            i' = i + 1
+        }
+
+        // Swap rows if needed (using StoneArray primitives)
+        swapResult = if (pivotInfo.maxIdx != k) {
+            Mswap = _swap_rows(M, k, pivotInfo.maxIdx)
+            // Swap elements in b vector
+            tempK = x[k]
+            tempMax = x[pivotInfo.maxIdx]
+            x1 = _set_at(x, k, tempMax)
+            x2 = _set_at(x1, pivotInfo.maxIdx, tempK)
+            return({ M = Mswap, x = x2 })
+        } else {
+            return({ M = M, x = x })
+        }
+        Mswapped = swapResult.M
+        xswapped = swapResult.x
+
+        // Check for singular matrix
+        if (abs(Mswapped[k][k]) < _EPS) {
+            error("solve() failed: matrix is singular or nearly singular")
+        }
+
+        // Eliminate below pivot using addScaledRow
+        elim = evolve { Mi = Mswapped, xi = xswapped, i = k + 1 } while(i < n) {
+            factor = -Mi[i][k] / Mi[k][k]
+            Mi' = _add_scaled_row(Mi, i, k, factor)
+            xi' = _set_at(xi, i, xi[i] + factor * xi[k])
+            i' = i + 1
+        }
+
+        M' = elim.Mi
+        x' = elim.xi
+        k' = k + 1
+    }
+
+    // Back substitution
+    sol as result := evolve { sol = fwdElim.x, i = n - 1 } while(i >= 0) {
+        // Compute sum of known terms
+        s as sumTerms := evolve { s = 0, j = i + 1 } while(j < n) {
+            s' = s + fwdElim.M[i][j] * sol[j]
+            j' = j + 1
+        }
+
+        newVal = (sol[i] - sumTerms) / fwdElim.M[i][i]
+        sol' = _set_at(sol, i, newVal)
+        i' = i - 1
+    }
+
+    return(result)
+}
+
+// =============================================================================
+// MATRIX INVERSE
+// =============================================================================
+
+// inv(A) - matrix inverse using Gauss-Jordan elimination
+// Returns inverse matrix A^(-1)
+// Uses StoneArray primitives for immutable matrix operations
+export fn inv(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("inv() requires a square matrix")
+    }
+
+    // Work with A and identity matrix I
+    I = eye(n)
+
+    // Forward elimination (make upper triangular)
+    fwd = evolve { M = A, Inv = I, k = 0 } while(k < n) {
+        // Find pivot
+        pivotInfo = evolve { maxVal = abs(M[k][k]), maxIdx = k, i = k + 1 } while(i < n) {
+            currVal = abs(M[i][k])
+            maxVal' = if (currVal > maxVal) { return(currVal) } else { return(maxVal) }
+            maxIdx' = if (currVal > maxVal) { return(i) } else { return(maxIdx) }
+            i' = i + 1
+        }
+
+        // Swap rows if needed
+        swapResult = if (pivotInfo.maxIdx != k) {
+            return({ M = _swap_rows(M, k, pivotInfo.maxIdx), Inv = _swap_rows(Inv, k, pivotInfo.maxIdx) })
+        } else {
+            return({ M = M, Inv = Inv })
+        }
+        Mswapped = swapResult.M
+        Iswapped = swapResult.Inv
+
+        if (abs(Mswapped[k][k]) < _EPS) {
+            error("inv() failed: matrix is singular")
+        }
+
+        // Scale pivot row to make pivot = 1
+        pivot = Mswapped[k][k]
+        scaleFactor = 1 / pivot
+        Mscaled = _scale_row(Mswapped, k, scaleFactor)
+        Iscaled = _scale_row(Iswapped, k, scaleFactor)
+
+        // Eliminate below pivot
+        elim = evolve { Mi = Mscaled, Ii = Iscaled, i = k + 1 } while(i < n) {
+            factor = -Mi[i][k]
+            Mi' = _add_scaled_row(Mi, i, k, factor)
+            Ii' = _add_scaled_row(Ii, i, k, factor)
+            i' = i + 1
+        }
+
+        M' = elim.Mi
+        Inv' = elim.Ii
+        k' = k + 1
+    }
+
+    // Back elimination (make identity)
+    bwd = evolve { M = fwd.M, Inv = fwd.Inv, k = n - 1 } while(k >= 0) {
+        elim = evolve { Mi = M, Ii = Inv, i = 0 } while(i < k) {
+            factor = -Mi[i][k]
+            Mi' = _add_scaled_row(Mi, i, k, factor)
+            Ii' = _add_scaled_row(Ii, i, k, factor)
+            i' = i + 1
+        }
+        M' = elim.Mi
+        Inv' = elim.Ii
+        k' = k - 1
+    }
+
+    return(bwd.Inv)
+}
+
+// =============================================================================
+// MATRIX STACKING AND KRONECKER PRODUCT
+// =============================================================================
+
+// hcat(A, B) - Horizontal concatenation of 2D matrices [A | B]
+// A is m x n1, B is m x n2, result is m x (n1+n2)
+// Note: Use this for 2D matrices; the primitive hstack works on 1D arrays
+export fn hcat(A, B) {
+    sA = _shape(A)
+    sB = _shape(B)
+
+    if (sA[0] != sB[0]) {
+        error("hcat() requires matrices with same number of rows")
+    }
+
+    m = sA[0]
+    n1 = sA[1]
+    n2 = sB[1]
+
+    // Build result row by row
+    result := evolve { result = [], i = 0 } while (i < m) {
+        row := evolve { row = [], j = 0 } while (j < n1 + n2) {
+            val = if (j < n1) { return(A[i][j]) } else { return(B[i][j - n1]) }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        result' = push(result, row)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// vcat(A, B) - Vertical concatenation of 2D matrices [A; B]
+// A is m1 x n, B is m2 x n, result is (m1+m2) x n
+// Note: Use this for 2D matrices; the primitive vstack works on 1D arrays
+export fn vcat(A, B) {
+    sA = _shape(A)
+    sB = _shape(B)
+
+    if (sA[1] != sB[1]) {
+        error("vcat() requires matrices with same number of columns")
+    }
+
+    m1 = sA[0]
+    m2 = sB[0]
+    n = sA[1]
+
+    // Build result by copying rows
+    result := evolve { result = [], i = 0 } while (i < m1 + m2) {
+        row = if (i < m1) { return(A[i]) } else { return(B[i - m1]) }
+        // Copy row to ensure immutability
+        rowCopy := evolve { rowCopy = [], j = 0 } while (j < n) {
+            rowCopy' = push(rowCopy, row[j])
+            j' = j + 1
+        }
+        result' = push(result, rowCopy)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// kron(A, B) - Kronecker product
+// A is m1 x n1, B is m2 x n2, result is (m1*m2) x (n1*n2)
+export fn kron(A, B) {
+    sA = _shape(A)
+    sB = _shape(B)
+
+    m1 = sA[0]
+    n1 = sA[1]
+    m2 = sB[0]
+    n2 = sB[1]
+
+    // Build result row by row
+    result := evolve { result = [], i = 0 } while (i < m1 * m2) {
+        row := evolve { row = [], j = 0 } while (j < n1 * n2) {
+            // Element (i,j) comes from A[i/m2][j/n2] * B[i%m2][j%n2]
+            ai = floor(i / m2)
+            aj = floor(j / n2)
+            bi = i - ai * m2   // i % m2
+            bj = j - aj * n2   // j % n2
+            val = A[ai][aj] * B[bi][bj]
+            row' = push(row, val)
+            j' = j + 1
+        }
+        result' = push(result, row)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// blkdiag(A, B) - Block diagonal matrix
+// Result has A in upper-left, B in lower-right, zeros elsewhere
+export fn blkdiag(A, B) {
+    sA = _shape(A)
+    sB = _shape(B)
+
+    m1 = sA[0]
+    n1 = sA[1]
+    m2 = sB[0]
+    n2 = sB[1]
+
+    // Build result row by row
+    result := evolve { result = [], i = 0 } while (i < m1 + m2) {
+        row := evolve { row = [], j = 0 } while (j < n1 + n2) {
+            val = if (i < m1 && j < n1) {
+                return(A[i][j])
+            } elif (i >= m1 && j >= n1) {
+                return(B[i - m1][j - n1])
+            } else {
+                return(0)
+            }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        result' = push(result, row)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// =============================================================================
+// QR DECOMPOSITION (Modified Gram-Schmidt)
+// =============================================================================
+
+// qr(A) - QR decomposition using Modified Gram-Schmidt
+// Returns { Q, R } where A = Q @ R, Q is orthogonal, R is upper triangular
+export fn qr(A) {
+    s = _shape(A)
+    m = s[0]
+    n = s[1]
+
+    // Initialize Q as copy of A (we'll orthogonalize columns)
+    // Initialize R as zeros
+    Q0_state = evolve { Q = [], i = 0 } while (i < m) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j])
+            j' = j + 1
+        }
+        Q' = push(Q, row)
+        i' = i + 1
+    }
+    Q0 = Q0_state.Q
+
+    R0_state = evolve { R = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, 0)
+            j' = j + 1
+        }
+        R' = push(R, row)
+        i' = i + 1
+    }
+    R0 = R0_state.R
+
+    // Modified Gram-Schmidt: for each column k
+    finalQR = evolve { Q = Q0, R = R0, k = 0 } while (k < n) {
+        // Compute norm of column k of Q (this becomes R[k][k])
+        colNorm := evolve { colNorm = 0, i = 0 } while (i < m) {
+            colNorm' = colNorm + Q[i][k] * Q[i][k]
+            i' = i + 1
+        }
+        rkk = sqrt(colNorm)
+
+        // Update R[k][k]
+        Rrow := evolve { Rrow = [], j = 0 } while (j < n) {
+            val = if (j == k) { return(rkk) } else { return(R[k][j]) }
+            Rrow' = push(Rrow, val)
+            j' = j + 1
+        }
+        R1 := evolve { R1 = [], i = 0 } while (i < n) {
+            row = if (i == k) { return(Rrow) } else { return(R[i]) }
+            R1' = push(R1, row)
+            i' = i + 1
+        }
+
+        // Normalize column k of Q (divide by rkk)
+        Q1 := evolve { Q1 = [], i = 0 } while (i < m) {
+            row := evolve { row = [], j = 0 } while (j < n) {
+                val = if (j == k) {
+                    return(if (rkk > _EPS) { return(Q[i][k] / rkk) } else { return(0) })
+                } else {
+                    return(Q[i][j])
+                }
+                row' = push(row, val)
+                j' = j + 1
+            }
+            Q1' = push(Q1, row)
+            i' = i + 1
+        }
+
+        // Orthogonalize remaining columns against column k
+        ortho = evolve { Qi = Q1, Ri = R1, j = k + 1 } while (j < n) {
+            // R[k][j] = dot(Q[:,k], Q[:,j])
+            dotProd := evolve { dotProd = 0, i = 0 } while (i < m) {
+                dotProd' = dotProd + Qi[i][k] * Qi[i][j]
+                i' = i + 1
+            }
+            rkj = dotProd
+
+            // Update R[k][j]
+            RrowJ := evolve { RrowJ = [], jj = 0 } while (jj < n) {
+                val = if (jj == j) { return(rkj) } else { return(Ri[k][jj]) }
+                RrowJ' = push(RrowJ, val)
+                jj' = jj + 1
+            }
+            Ri2 := evolve { Ri2 = [], ii = 0 } while (ii < n) {
+                row = if (ii == k) { return(RrowJ) } else { return(Ri[ii]) }
+                Ri2' = push(Ri2, row)
+                ii' = ii + 1
+            }
+
+            // Q[:,j] = Q[:,j] - rkj * Q[:,k]
+            Qi2 := evolve { Qi2 = [], i = 0 } while (i < m) {
+                row := evolve { row = [], jj = 0 } while (jj < n) {
+                    val = if (jj == j) {
+                        return(Qi[i][j] - rkj * Qi[i][k])
+                    } else {
+                        return(Qi[i][jj])
+                    }
+                    row' = push(row, val)
+                    jj' = jj + 1
+                }
+                Qi2' = push(Qi2, row)
+                i' = i + 1
+            }
+
+            Qi' = Qi2
+            Ri' = Ri2
+            j' = j + 1
+        }
+
+        Q' = ortho.Qi
+        R' = ortho.Ri
+        k' = k + 1
+    }
+
+    return({ Q = finalQR.Q, R = finalQR.R })
+}
+
+// =============================================================================
+// LU DECOMPOSITION
+// =============================================================================
+
+// lu(A) - LU decomposition with partial pivoting
+// Returns { L, U, P } where P @ A = L @ U
+// L is lower triangular with 1s on diagonal, U is upper triangular
+export fn lu(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("lu() requires a square matrix")
+    }
+
+    // Initialize U as copy of A, L as identity, P as identity
+    U0_state = evolve { U = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j])
+            j' = j + 1
+        }
+        U' = push(U, row)
+        i' = i + 1
+    }
+    U0 = U0_state.U
+
+    L0_state = evolve { L = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            val = if (i == j) { return(1) } else { return(0) }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        L' = push(L, row)
+        i' = i + 1
+    }
+    L0 = L0_state.L
+
+    P0_state = evolve { P = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            val = if (i == j) { return(1) } else { return(0) }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        P' = push(P, row)
+        i' = i + 1
+    }
+    P0 = P0_state.P
+
+    // Gaussian elimination with partial pivoting
+    final = evolve { U = U0, L = L0, P = P0, k = 0 } while (k < n - 1) {
+        // Find pivot
+        pivotInfo = evolve { maxVal = abs(U[k][k]), maxIdx = k, i = k + 1 } while (i < n) {
+            currVal = abs(U[i][k])
+            maxVal' = if (currVal > maxVal) { return(currVal) } else { return(maxVal) }
+            maxIdx' = if (currVal > maxVal) { return(i) } else { return(maxIdx) }
+            i' = i + 1
+        }
+
+        // Swap rows in U, P, and L (below diagonal part of L)
+        swapped = if (pivotInfo.maxIdx != k) {
+            // Swap rows k and maxIdx in U
+            Uswap := evolve { Uswap = [], i = 0 } while (i < n) {
+                row = if (i == k) { return(U[pivotInfo.maxIdx]) }
+                      elif (i == pivotInfo.maxIdx) { return(U[k]) }
+                      else { return(U[i]) }
+                Uswap' = push(Uswap, row)
+                i' = i + 1
+            }
+            // Swap rows in P
+            Pswap := evolve { Pswap = [], i = 0 } while (i < n) {
+                row = if (i == k) { return(P[pivotInfo.maxIdx]) }
+                      elif (i == pivotInfo.maxIdx) { return(P[k]) }
+                      else { return(P[i]) }
+                Pswap' = push(Pswap, row)
+                i' = i + 1
+            }
+            // Swap L entries in columns 0..k-1 only
+            Lswap := evolve { Lswap = [], i = 0 } while (i < n) {
+                row = if (i == k || i == pivotInfo.maxIdx) {
+                    // Build swapped row
+                    newRow := evolve { newRow = [], j = 0 } while (j < n) {
+                        srcRow = if (i == k) { return(pivotInfo.maxIdx) } else { return(k) }
+                        val = if (j < k) { return(L[srcRow][j]) } else { return(L[i][j]) }
+                        newRow' = push(newRow, val)
+                        j' = j + 1
+                    }
+                    return(newRow)
+                } else {
+                    return(L[i])
+                }
+                Lswap' = push(Lswap, row)
+                i' = i + 1
+            }
+            return({ U = Uswap, L = Lswap, P = Pswap })
+        } else {
+            return({ U = U, L = L, P = P })
+        }
+
+        // Elimination
+        elim = evolve { Ui = swapped.U, Li = swapped.L, i = k + 1 } while (i < n) {
+            factor = if (abs(Ui[k][k]) > _EPS) { return(Ui[i][k] / Ui[k][k]) } else { return(0) }
+
+            // Update L[i][k] = factor
+            LiNew := evolve { LiNew = [], ii = 0 } while (ii < n) {
+                row = if (ii == i) {
+                    rowNew := evolve { rowNew = [], j = 0 } while (j < n) {
+                        val = if (j == k) { return(factor) } else { return(Li[ii][j]) }
+                        rowNew' = push(rowNew, val)
+                        j' = j + 1
+                    }
+                    return(rowNew)
+                } else {
+                    return(Li[ii])
+                }
+                LiNew' = push(LiNew, row)
+                ii' = ii + 1
+            }
+
+            // Update U: row i = row i - factor * row k
+            UiNew := evolve { UiNew = [], ii = 0 } while (ii < n) {
+                row = if (ii == i) {
+                    rowNew := evolve { rowNew = [], j = 0 } while (j < n) {
+                        val = Ui[i][j] - factor * Ui[k][j]
+                        rowNew' = push(rowNew, val)
+                        j' = j + 1
+                    }
+                    return(rowNew)
+                } else {
+                    return(Ui[ii])
+                }
+                UiNew' = push(UiNew, row)
+                ii' = ii + 1
+            }
+
+            Ui' = UiNew
+            Li' = LiNew
+            i' = i + 1
+        }
+
+        U' = elim.Ui
+        L' = elim.Li
+        P' = swapped.P
+        k' = k + 1
+    }
+
+    return({ L = final.L, U = final.U, P = final.P })
+}
+
+// =============================================================================
+// EIGENVALUE COMPUTATION (QR Algorithm)
+// =============================================================================
+
+// _hessenberg(A) - Reduce matrix to upper Hessenberg form
+// Internal helper for eigenvalue computation
+fn _hessenberg(A) {
+    s = _shape(A)
+    n = s[0]
+
+    // Copy A
+    H0_state = evolve { H = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, A[i][j])
+            j' = j + 1
+        }
+        H' = push(H, row)
+        i' = i + 1
+    }
+    H0 = H0_state.H
+
+    // Householder reflections for each column k
+    final = evolve { H = H0, k = 0 } while (k < n - 2) {
+        // Extract column below diagonal
+        colNormSq := evolve { colNormSq = 0, i = k + 1 } while (i < n) {
+            colNormSq' = colNormSq + H[i][k] * H[i][k]
+            i' = i + 1
+        }
+        colNorm = sqrt(colNormSq)
+
+        if (colNorm < _EPS) {
+            // Skip if column is already zero
+            H' = H
+            k' = k + 1
+        } else {
+            // Construct Householder vector v
+            sign_val = if (H[k+1][k] >= 0) { return(1) } else { return(-1) }
+            alpha = -sign_val * colNorm
+
+            // v = [H[k+1][k] - alpha, H[k+2][k], ..., H[n-1][k]]
+            // v = v / norm(v)
+            v0 = H[k+1][k] - alpha
+            vNormSq := evolve { vNormSq = v0 * v0, i = k + 2 } while (i < n) {
+                vNormSq' = vNormSq + H[i][k] * H[i][k]
+                i' = i + 1
+            }
+            vNorm = sqrt(vNormSq)
+
+            // Build normalized v vector (length n-k-1)
+            v := evolve { v = [], i = 0 } while (i < n - k - 1) {
+                val = if (i == 0) { return(v0 / vNorm) } else { return(H[k + 1 + i][k] / vNorm) }
+                v' = push(v, val)
+                i' = i + 1
+            }
+
+            // Apply H = (I - 2*v*v') * H from left (affects rows k+1 to n-1)
+            Hleft := evolve { Hleft = H, j = 0 } while (j < n) {
+                // Compute dot = v' * H[k+1:n, j]
+                dot := evolve { dot = 0, i = 0 } while (i < n - k - 1) {
+                    dot' = dot + v[i] * Hleft[k + 1 + i][j]
+                    i' = i + 1
+                }
+                // H[k+1:n, j] -= 2 * dot * v
+                HleftNew := evolve { HleftNew = [], i = 0 } while (i < n) {
+                    row = if (i > k) {
+                        rowNew := evolve { rowNew = [], jj = 0 } while (jj < n) {
+                            val = if (jj == j) {
+                                return(Hleft[i][j] - 2 * dot * v[i - k - 1])
+                            } else {
+                                return(Hleft[i][jj])
+                            }
+                            rowNew' = push(rowNew, val)
+                            jj' = jj + 1
+                        }
+                        return(rowNew)
+                    } else {
+                        return(Hleft[i])
+                    }
+                    HleftNew' = push(HleftNew, row)
+                    i' = i + 1
+                }
+                Hleft' = HleftNew
+                j' = j + 1
+            }
+
+            // Apply H = H * (I - 2*v*v') from right (affects columns k+1 to n-1)
+            Hright := evolve { Hright = Hleft, i = 0 } while (i < n) {
+                // Compute dot = H[i, k+1:n] * v
+                dot := evolve { dot = 0, j = 0 } while (j < n - k - 1) {
+                    dot' = dot + Hright[i][k + 1 + j] * v[j]
+                    j' = j + 1
+                }
+                // H[i, k+1:n] -= 2 * dot * v'
+                HrightNew := evolve { HrightNew = [], ii = 0 } while (ii < n) {
+                    row = if (ii == i) {
+                        rowNew := evolve { rowNew = [], j = 0 } while (j < n) {
+                            val = if (j > k) {
+                                return(Hright[i][j] - 2 * dot * v[j - k - 1])
+                            } else {
+                                return(Hright[i][j])
+                            }
+                            rowNew' = push(rowNew, val)
+                            j' = j + 1
+                        }
+                        return(rowNew)
+                    } else {
+                        return(Hright[ii])
+                    }
+                    HrightNew' = push(HrightNew, row)
+                    ii' = ii + 1
+                }
+                Hright' = HrightNew
+                i' = i + 1
+            }
+
+            H' = Hright
+            k' = k + 1
+        }
+    }
+
+    return(final.H)
+}
+
+// eigvals(A) - Compute eigenvalues of a square matrix using QR algorithm
+// Returns array of eigenvalues (may be complex for real matrices)
+// Uses upper Hessenberg reduction + Francis QR iteration
+export fn eigvals(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("eigvals() requires a square matrix")
+    }
+
+    if (n == 1) {
+        result1: array<Complex,1> = [_complex(A[0][0], 0)]
+        return(result1)
+    }
+
+    if (n == 2) {
+        // Direct formula for 2x2
+        // eigenvalues of [a b; c d] are (a+d)/2 +/- sqrt((a-d)^2/4 + bc)
+        a = A[0][0]
+        b = A[0][1]
+        c = A[1][0]
+        d = A[1][1]
+        tr = a + d
+        disc = (a - d) * (a - d) / 4 + b * c
+        if (disc >= 0) {
+            sqrtDisc = sqrt(disc)
+            result2: array<Complex,1> = [_complex(tr / 2 + sqrtDisc, 0), _complex(tr / 2 - sqrtDisc, 0)]
+            return(result2)
+        } else {
+            sqrtDisc = sqrt(-disc)
+            result2: array<Complex,1> = [_complex(tr / 2, sqrtDisc), _complex(tr / 2, -sqrtDisc)]
+            return(result2)
+        }
+    }
+
+    // Reduce to upper Hessenberg form
+    H0 = _hessenberg(A)
+
+    // QR iteration with Wilkinson shift
+    maxIter = 100 * n
+    tol = 1e-10
+
+    // Type-annotate the eigenvalues array so push knows the element type
+    initEigenvalues: array<Complex,1> = []
+    result = evolve { H = H0, eigenvalues = initEigenvalues, m = n, iter = 0 } while (m > 0 && iter < maxIter) {
+        if (m == 1) {
+            // Single eigenvalue
+            eigenvalues' = push(eigenvalues, _complex(H[0][0], 0))
+            m' = 0
+            H' = H
+            iter' = iter + 1
+        } elif (m == 2) {
+            // 2x2 block - compute eigenvalues directly
+            a = H[0][0]
+            b = H[0][1]
+            c = H[1][0]
+            d = H[1][1]
+            tr = a + d
+            disc = (a - d) * (a - d) / 4 + b * c
+            if (disc >= 0) {
+                sqrtDisc = sqrt(disc)
+                eigenvalues' = push(eigenvalues, _complex(tr / 2 + sqrtDisc, 0))
+                eigenvalues'' = push(eigenvalues', _complex(tr / 2 - sqrtDisc, 0))
+            } else {
+                sqrtDisc = sqrt(-disc)
+                eigenvalues' = push(eigenvalues, _complex(tr / 2, sqrtDisc))
+                eigenvalues'' = push(eigenvalues', _complex(tr / 2, -sqrtDisc))
+            }
+            m' = 0
+            H' = H
+            iter' = iter + 1
+        } else {
+            // Check for convergence (small subdiagonal element)
+            subdiag = abs(H[m-1][m-2])
+            diagSum = abs(H[m-1][m-1]) + abs(H[m-2][m-2])
+
+            if (subdiag < tol * (diagSum + 1)) {
+                // Deflate - eigenvalue found at H[m-1][m-1]
+                eigenvalues' = push(eigenvalues, _complex(H[m-1][m-1], 0))
+
+                // Reduce H to (m-1) x (m-1) by removing last row/column
+                Hnew := evolve { Hnew = [], i = 0 } while (i < m - 1) {
+                    row := evolve { row = [], j = 0 } while (j < m - 1) {
+                        row' = push(row, H[i][j])
+                        j' = j + 1
+                    }
+                    Hnew' = push(Hnew, row)
+                    i' = i + 1
+                }
+                H' = Hnew
+                m' = m - 1
+                iter' = iter + 1
+            } else {
+                // Wilkinson shift: eigenvalue of bottom 2x2 closer to H[m-1][m-1]
+                a = H[m-2][m-2]
+                b = H[m-2][m-1]
+                c = H[m-1][m-2]
+                d = H[m-1][m-1]
+                tr = a + d
+                det_val = a * d - b * c
+                disc = tr * tr / 4 - det_val
+
+                // Compute shift (must be defined before use in loop)
+                shift = if (disc >= 0) {
+                    sqrtDisc = sqrt(disc)
+                    e1 = tr / 2 + sqrtDisc
+                    e2 = tr / 2 - sqrtDisc
+                    return(if (abs(e1 - d) < abs(e2 - d)) { return(e1) } else { return(e2) })
+                } else {
+                    // Complex eigenvalues - use d as shift
+                    return(d)
+                }
+
+                // Apply shift: H - shift*I
+                Hshifted := evolve { Hshifted = [], i = 0 } while (i < m) {
+                    row := evolve { row = [], j = 0 } while (j < m) {
+                        val = if (i == j) { return(H[i][j] - shift) } else { return(H[i][j]) }
+                        row' = push(row, val)
+                        j' = j + 1
+                    }
+                    Hshifted' = push(Hshifted, row)
+                    i' = i + 1
+                }
+
+                // QR step using Givens rotations (more stable for Hessenberg)
+                // Apply Givens rotations to zero subdiagonal
+                // Use Hq to avoid conflict with outer loop's H state variable
+                Qrot = evolve { Hq = Hshifted, cs = [], sn = [], k = 0 } while (k < m - 1) {
+                    // Givens rotation to zero Hq[k+1][k]
+                    giv_a = Hq[k][k]
+                    giv_b = Hq[k+1][k]
+                    r = sqrt(giv_a*giv_a + giv_b*giv_b)
+                    c_val = if (r > _EPS) { return(giv_a / r) } else { return(1) }
+                    s_val = if (r > _EPS) { return(-giv_b / r) } else { return(0) }
+
+                    // Apply rotation to rows k and k+1
+                    Hrot := evolve { Hrot = [], i = 0 } while (i < m) {
+                        row = if (i == k || i == k + 1) {
+                            rowNew := evolve { rowNew = [], j = 0 } while (j < m) {
+                                val = if (i == k) {
+                                    return(c_val * Hq[k][j] - s_val * Hq[k+1][j])
+                                } else {
+                                    return(s_val * Hq[k][j] + c_val * Hq[k+1][j])
+                                }
+                                rowNew' = push(rowNew, val)
+                                j' = j + 1
+                            }
+                            return(rowNew)
+                        } else {
+                            return(Hq[i])
+                        }
+                        Hrot' = push(Hrot, row)
+                        i' = i + 1
+                    }
+
+                    Hq' = Hrot
+                    cs' = push(cs, c_val)
+                    sn' = push(sn, s_val)
+                    k' = k + 1
+                }
+
+                // Apply rotations from right: Hr = R * Q
+                // Use Hr to avoid conflict with outer loop's H state variable
+                Qright = evolve { Hr = Qrot.Hq, k = 0 } while (k < m - 1) {
+                    c_val = Qrot.cs[k]
+                    s_val = Qrot.sn[k]
+                    // Apply rotation to columns k and k+1
+                    Hrot := evolve { Hrot = [], i = 0 } while (i < m) {
+                        rowNew := evolve { rowNew = [], j = 0 } while (j < m) {
+                            val = if (j == k) {
+                                return(c_val * Hr[i][k] - s_val * Hr[i][k+1])
+                            } elif (j == k + 1) {
+                                return(s_val * Hr[i][k] + c_val * Hr[i][k+1])
+                            } else {
+                                return(Hr[i][j])
+                            }
+                            rowNew' = push(rowNew, val)
+                            j' = j + 1
+                        }
+                        Hrot' = push(Hrot, rowNew)
+                        i' = i + 1
+                    }
+                    Hr' = Hrot
+                    k' = k + 1
+                }
+
+                // Add shift back: H + shift*I
+                Hunshifted := evolve { Hunshifted = [], i = 0 } while (i < m) {
+                    row := evolve { row = [], j = 0 } while (j < m) {
+                        val = if (i == j) { return(Qright.Hr[i][j] + shift) } else { return(Qright.Hr[i][j]) }
+                        row' = push(row, val)
+                        j' = j + 1
+                    }
+                    Hunshifted' = push(Hunshifted, row)
+                    i' = i + 1
+                }
+
+                H' = Hunshifted
+                eigenvalues' = eigenvalues
+                m' = m
+                iter' = iter + 1
+            }
+        }
+    }
+
+    return(result.eigenvalues)
+}
+
+// =============================================================================
+// MATRIX EXPONENTIAL (Scaling and Squaring with Padé)
+// =============================================================================
+
+// expm(A) - Matrix exponential using scaling and squaring with Padé approximation
+// Computes e^A for square matrix A
+export fn expm(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("expm() requires a square matrix")
+    }
+
+    // Compute matrix norm (infinity norm for scaling)
+    normLoop = evolve { normA = 0, i = 0 } while (i < n) {
+        rowLoop = evolve { rowSum = 0, j = 0 } while (j < n) {
+            rowSum' = rowSum + abs(A[i][j])
+            j' = j + 1
+        }
+        normA' = if (rowLoop.rowSum > normA) { return(rowLoop.rowSum) } else { return(normA) }
+        i' = i + 1
+    }
+    normA = normLoop.normA
+
+    // Scaling: find k such that ||A/2^k|| < 1/2
+    kScale = evolve { k = 0, scale = normA } while (scale > 0.5) {
+        k' = k + 1
+        scale' = scale / 2
+    }
+
+    // Scale A by 2^(-k) using element-wise operations
+    // Compute 2^(-k) = 1 / 2^k
+    scaleLoop = evolve { scaleFactor = 1, i = 0 } while (i < kScale.k) {
+        scaleFactor' = scaleFactor / 2
+        i' = i + 1
+    }
+
+    // Use element-wise multiplication to scale A (preserves array<num,2> type)
+    As = A .* scaleLoop.scaleFactor
+
+    // Identity matrix (properly typed as array<num,2>)
+    I = eye(n)
+
+    // Compute powers of As: As^2, As^3
+    As2 = As @ As
+    As3 = As2 @ As
+
+    // Padé [3/3] approximation:
+    // N = I + As/2 + As^2/10 + As^3/120
+    // D = I - As/2 + As^2/10 - As^3/120
+    // exp(A) = D^(-1) @ N
+    // Use element-wise matrix arithmetic (.+ .-)  to preserve array<num,2> type
+    N = I .+ As ./ 2 .+ As2 ./ 10 .+ As3 ./ 120
+    D = I .- As ./ 2 .+ As2 ./ 10 .- As3 ./ 120
+
+    // expAs = inv(D) @ N
+    Dinv = inv(D)
+    expAs = Dinv @ N
+
+    // Squaring: exp(A) = exp(As)^(2^k)
+    sqLoop = evolve { result = expAs, i = 0 } while (i < kScale.k) {
+        result' = result @ result
+        i' = i + 1
+    }
+
+    return(sqLoop.result)
+}
+
+// =============================================================================
+// CHARACTERISTIC POLYNOMIAL
+// =============================================================================
+
+// charpoly(A) - Characteristic polynomial coefficients using Faddeev-LeVerrier
+// Returns coefficients [c_n, c_{n-1}, ..., c_1, c_0] of det(sI - A)
+// i.e., c_n*s^n + c_{n-1}*s^{n-1} + ... + c_1*s + c_0
+export fn charpoly(A) {
+    s = _shape(A)
+    n = s[0]
+
+    if (s[0] != s[1]) {
+        error("charpoly() requires a square matrix")
+    }
+
+    // Faddeev-LeVerrier algorithm:
+    // M_1 = A, c_{n-1} = -trace(M_1)
+    // M_k = A @ (M_{k-1} + c_{n-k+1}*I), c_{n-k} = -trace(M_k)/k
+
+    // Use properly typed identity matrix
+    I = eye(n)
+
+    // Initialize: c_n = 1, M = A
+    // Use = to get full result object, then access .coeffs
+    result = evolve { coeffs = [1], M = A, k = 1 } while (k <= n) {
+        // c_{n-k} = -trace(M) / k
+        trLoop = evolve { tr = 0, i = 0 } while (i < n) {
+            tr' = tr + M[i][i]
+            i' = i + 1
+        }
+        ck = -trLoop.tr / k
+        coeffs' = push(coeffs, ck)
+
+        // M = A @ (M + ck * I) using element-wise matrix arithmetic
+        M' = if (k < n) {
+            return(A @ (M .+ I .* ck))
+        } else {
+            return(M)
+        }
+
+        k' = k + 1
+    }
+
+    return(result.coeffs)
+}

@@ -1,0 +1,4 @@
+name = "linalg"
+version = "0.1.0"
+entry = "main.stn"
+description = "Linear algebra: dot, cross, transpose, matmul, inverse, QR, SVD, eigenvalues"
