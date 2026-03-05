@@ -79,8 +79,6 @@
 #include <gp_Vec2d.hxx>
 #include <gp_Pnt2d.hxx>
 
-/* (reserved) */
-
 /* OCCT headers — Error handling */
 #include <Standard_Failure.hxx>
 
@@ -747,71 +745,75 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     if (faces.Extent() < 2) return 0; /* boundary edge */
 
     TopTools_ListIteratorOfListOfShape it(faces);
-    const TopoDS_Face& face1 = TopoDS::Face(it.Value()); it.Next();
-    const TopoDS_Face& face2 = TopoDS::Face(it.Value());
-    if (face1.IsSame(face2)) return 0; /* seam edge */
+    const TopoDS_Face& F1 = TopoDS::Face(it.Value()); it.Next();
+    const TopoDS_Face& F2 = TopoDS::Face(it.Value());
+    if (F1.IsSame(F2)) return 0; /* seam edge */
 
-    /* Get edge midpoint */
-    double eFirst, eLast;
-    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, eFirst, eLast);
-    if (curve.IsNull()) return 0;
-    double eMid = (eFirst + eLast) / 2.0;
-    gp_Pnt edgePt = curve->Value(eMid);
-
-    /* Compute outward-pointing face normal at edge midpoint.
-     * Projects edge point onto the face surface to get UV, then uses
-     * surface partial derivatives for the normal. Face orientation
-     * determines flip direction. */
-    auto computeOutwardNormal = [&](const TopoDS_Face& face) -> gp_Vec {
-        Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
-        if (surf.IsNull()) return gp_Vec(0, 0, 0);
-
-        ShapeAnalysis_Surface sas(surf);
-        gp_Pnt2d uv = sas.ValueOfUV(edgePt, 1e-4);
-
-        gp_Pnt p;
-        gp_Vec du, dv;
-        surf->D1(uv.X(), uv.Y(), p, du, dv);
-        gp_Vec normal = du.Crossed(dv);
-        if (normal.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
-        normal.Normalize();
-
-        if (face.Orientation() == TopAbs_REVERSED) {
-            normal.Reverse();
-        }
-        return normal;
-    };
-
-    gp_Vec n1 = computeOutwardNormal(face1);
-    gp_Vec n2 = computeOutwardNormal(face2);
-    if (n1.Magnitude() < 1e-10 || n2.Magnitude() < 1e-10) return 0;
-
-    /* Edge-direction-independent convexity classification.
+    /* Algorithm from OCCT's ChFi3d::DefineConnectType (src/ChFi3d/ChFi3d.cxx).
      *
-     * Offset a test point along face1's outward normal, then project it onto
-     * face2's surface. The signed distance tells us which side of face2 the
-     * test point lands on:
-     *   - On face2's outward (air) side → face1's normal points away from face2 → convex
-     *   - On face2's inward (material) side → face1's normal points into face2 → concave
-     *
-     * This is independent of edge tangent direction. */
-    double eps = 1e-3;
-    gp_Pnt testPt(edgePt.X() + eps * n1.X(),
-                   edgePt.Y() + eps * n1.Y(),
-                   edgePt.Z() + eps * n1.Z());
+     * 1. Get edge tangent at midpoint, corrected for edge orientation within F1
+     *    using BRepTools::OriEdgeInFace. This gives a CONSISTENT tangent
+     *    direction relative to face1's boundary winding, regardless of the
+     *    arbitrary edge direction in the shape.
+     * 2. Compute outward face normals DN1, DN2 from surface derivatives + pcurves.
+     * 3. ProVec = DN1 × DN2. If T1 · ProVec > 0 → convex, else concave. */
 
-    Handle(Geom_Surface) surf2 = BRep_Tool::Surface(face2);
-    if (surf2.IsNull()) return 0;
+    /* Get pcurves on both faces */
+    double f, l;
+    Handle(Geom2d_Curve) C1 = BRep_Tool::CurveOnSurface(edge, F1, f, l);
+    Handle(Geom2d_Curve) C2 = BRep_Tool::CurveOnSurface(edge, F2, f, l);
+    if (C1.IsNull() || C2.IsNull()) return 0;
 
-    GeomAPI_ProjectPointOnSurf proj(testPt, surf2);
-    if (proj.NbPoints() == 0) return 0;
+    /* Edge tangent at midpoint, with consistent orientation */
+    BRepAdaptor_Curve CE(edge);
+    double ParOnC = 0.5 * (CE.FirstParameter() + CE.LastParameter());
+    gp_Vec T1 = CE.DN(ParOnC, 1);
+    if (T1.SquareMagnitude() < 1e-20) return 0;
+    T1.Normalize();
 
-    gp_Pnt closest = proj.NearestPoint();
-    gp_Vec toTest(closest, testPt);
-    double signedDist = toTest.Dot(n2);
+    /* Correct tangent for edge orientation within face1, then for face orientation.
+     * This is the key step that makes the result independent of arbitrary edge direction. */
+    if (BRepTools::OriEdgeInFace(edge, F1) == TopAbs_REVERSED)
+        T1.Reverse();
+    if (F1.Orientation() == TopAbs_REVERSED)
+        T1.Reverse();
 
-    if (signedDist > 1e-7) return 1;    /* convex */
-    if (signedDist < -1e-7) return -1;  /* concave */
+    /* Outward normal of face1 at edge midpoint */
+    const Handle(Geom_Surface)& S1 = BRep_Tool::Surface(F1);
+    const Handle(Geom_Surface)& S2 = BRep_Tool::Surface(F2);
+    if (S1.IsNull() || S2.IsNull()) return 0;
+
+    gp_Pnt2d P1 = C1->Value(ParOnC);
+    gp_Pnt P3;
+    gp_Vec D1U, D1V;
+    S1->D1(P1.X(), P1.Y(), P3, D1U, D1V);
+    gp_Vec DN1 = D1U.Crossed(D1V);
+    if (DN1.SquareMagnitude() < 1e-20) return 0;
+    DN1.Normalize();
+    if (F1.Orientation() == TopAbs_REVERSED) DN1.Reverse();
+
+    /* Outward normal of face2 at edge midpoint */
+    gp_Pnt2d P2 = C2->Value(ParOnC);
+    S2->D1(P2.X(), P2.Y(), P3, D1U, D1V);
+    gp_Vec DN2 = D1U.Crossed(D1V);
+    if (DN2.SquareMagnitude() < 1e-20) return 0;
+    DN2.Normalize();
+    if (F2.Orientation() == TopAbs_REVERSED) DN2.Reverse();
+
+    /* Cross product of normals */
+    gp_Vec ProVec = DN1.Crossed(DN2);
+    double NormProVec = ProVec.Magnitude();
+
+    if (NormProVec < 1e-4) {
+        /* Nearly parallel normals: tangent or opposing */
+        if (DN1.Dot(DN2) > 0) return 0;  /* tangent / flat */
+        return 1;                          /* opposing normals → convex (sharp 180° edge) */
+    }
+
+    /* Sign of T1 · (DN1 × DN2) determines convexity */
+    double Prod = T1.Dot(ProVec);
+    if (Prod > 0.) return 1;   /* convex */
+    if (Prod < 0.) return -1;  /* concave */
     return 0;
 }
 

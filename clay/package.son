@@ -2,7 +2,7 @@
 // Native kernel wrapping OpenCascade (OCCT) BRep geometry kernel
 
 name = "clay"
-version = "0.3.3"
+version = "0.3.4"
 entry = "main.stn"
 description = "Full BRep solid modeling with boolean operations, fillets, chamfers, queries, profiles, and mesh extraction"
 
