@@ -1,0 +1,126 @@
+// stats.stn - Statistics Standard Library
+// Provides statistical functions for data analysis
+
+import sqrt from math
+
+// =============================================================================
+// CENTRAL TENDENCY
+// =============================================================================
+
+// Arithmetic mean (average) of array elements
+export fn mean(xs) {
+    total, count := evolve { total = 0, count = 0 } for(x in xs) {
+        total' = total + x
+        count' = count + 1
+    }
+    return(total / count)
+}
+
+// Median value (middle element of sorted array)
+export fn median(xs) {
+    sorted = sort(xs)
+    n = len(sorted)
+    mid = floor(n / 2)
+    result = if (n % 2 == 0) {
+        return((sorted[mid - 1] + sorted[mid]) / 2)
+    } else {
+        return(sorted[mid])
+    }
+    return(result)
+}
+
+// =============================================================================
+// DISPERSION
+// =============================================================================
+
+// Variance of array elements
+// ddof = delta degrees of freedom (0 for population, 1 for sample)
+
+// Population variance (single-argument version, ddof=0)
+export fn variance(xs) {
+    n = len(xs)
+    m = mean(xs)
+    sumSq = evolve (sumSq = 0) for(x in xs) {
+        diff = x - m
+        sumSq' = sumSq + diff * diff
+    }
+    return(sumSq / n)
+}
+
+// Full variance with ddof parameter
+export fn variance(xs, ddof) {
+    n = len(xs)
+    m = mean(xs)
+    sumSq = evolve (sumSq = 0) for(x in xs) {
+        diff = x - m
+        sumSq' = sumSq + diff * diff
+    }
+    return(sumSq / (n - ddof))
+}
+
+// Standard deviation (square root of variance)
+
+// Population std (single-argument version, ddof=0)
+export fn std(xs) = sqrt(variance(xs))
+
+// Full std with ddof parameter
+export fn std(xs, ddof) = sqrt(variance(xs, ddof))
+
+// =============================================================================
+// RELATIONSHIPS
+// =============================================================================
+
+// Covariance between two arrays (sample covariance)
+export fn cov(xs, ys) {
+    n = len(xs)
+    xMean = mean(xs)
+    yMean = mean(ys)
+    sumProd := evolve { sumProd = 0, i = 0 } for(x in xs) {
+        sumProd' = sumProd + (x - xMean) * (ys[i] - yMean)
+        i' = i + 1
+    }
+    return(sumProd / (n - 1))
+}
+
+// Pearson correlation coefficient
+export fn corr(xs, ys) {
+    n = len(xs)
+    xMean = mean(xs)
+    yMean = mean(ys)
+    sumProd, sumXSq, sumYSq := evolve { sumProd = 0, sumXSq = 0, sumYSq = 0, i = 0 } for(x in xs) {
+        dx = x - xMean
+        dy = ys[i] - yMean
+        sumProd' = sumProd + dx * dy
+        sumXSq' = sumXSq + dx * dx
+        sumYSq' = sumYSq + dy * dy
+        i' = i + 1
+    }
+    return(sumProd / sqrt(sumXSq * sumYSq))
+}
+
+// =============================================================================
+// QUANTILES
+// =============================================================================
+
+// Quantile (q-th fractile, q in [0,1])
+// Uses linear interpolation
+export fn quantile(xs, q) {
+    sorted = sort(xs)
+    n = len(sorted)
+    idx = q * (n - 1)
+    lo = floor(idx)
+    hi = ceil(idx)
+    frac = idx - lo
+    result = if (lo == hi) {
+        return(sorted[lo])
+    } else {
+        return(sorted[lo] * (1 - frac) + sorted[hi] * frac)
+    }
+    return(result)
+}
+
+// Percentile (p-th percentile, p in [0,100])
+export fn percentile(xs, p) = quantile(xs, p / 100)
+
+// Interquartile range (Q3 - Q1)
+export fn iqr(xs) = quantile(xs, 0.75) - quantile(xs, 0.25)
