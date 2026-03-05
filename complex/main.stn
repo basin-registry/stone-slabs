@@ -1,0 +1,209 @@
+// complex.stn - Complex Number Standard Library
+// Provides complex number creation and manipulation functions
+//
+// Complex numbers are represented as records: {re: num, im: num}
+// Access real/imaginary parts directly: z.re, z.im
+//
+// Usage: import complex, abs from complex
+
+// =============================================================================
+// TYPE DEFINITION
+// =============================================================================
+
+// Complex number as a record with real and imaginary parts
+export Complex = {re: num, im: num}
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+// complex(re, im) - create complex from real and imaginary parts
+export fn complex(re: num, im: num) -> Complex = {re = re, im = im}
+
+// complex(re) - create complex from real part (im = 0)
+export fn complex(re: num) -> Complex = {re = re, im = 0}
+
+// polar(r, theta) - create complex from polar coordinates
+// Returns r * e^(i*theta) = r * (cos(theta) + i*sin(theta))
+import cos as _cos, sin as _sin from primitives
+export fn polar(r: num, theta: num) -> Complex =
+  {re = r * _cos(theta), im = r * _sin(theta)}
+
+// =============================================================================
+// PROMOTION FUNCTION
+// =============================================================================
+
+// to_complex(x) - convert num to Complex
+// This is used in promotion syntax: fn add(a: Complex | to_complex(a), ...)
+export fn to_complex(x: num) -> Complex = {re = x, im = 0}
+
+// =============================================================================
+// ACCESSORS
+// =============================================================================
+
+// Access real and imaginary parts directly via z.re and z.im
+
+// conj(z) - complex conjugate (a + bi -> a - bi)
+export fn conj(z: Complex) -> Complex = {re = z.re, im = -z.im}
+
+// abs(z) - complex magnitude
+import sqrt as _sqrt from primitives
+export fn abs(z: Complex) -> num = _sqrt(z.re * z.re + z.im * z.im)
+
+// arg(z) - argument (phase angle) in radians
+import atan2 as _atan2 from primitives
+export fn arg(z: Complex) -> num = _atan2(z.im, z.re)
+
+// real(x) and imag(x) work on both num and complex
+export real, imag from primitives
+
+// =============================================================================
+// ARITHMETIC OPERATIONS (with promotion)
+// =============================================================================
+
+// Addition: supports Complex+Complex, num+Complex, Complex+num
+export fn add(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> Complex =
+  {re = a.re + b.re, im = a.im + b.im}
+
+// Subtraction
+export fn sub(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> Complex =
+  {re = a.re - b.re, im = a.im - b.im}
+
+// Multiplication: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+export fn mul(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> Complex =
+  {re = a.re * b.re - a.im * b.im, im = a.re * b.im + a.im * b.re}
+
+// Division: (a+bi)/(c+di) = [(ac+bd) + (bc-ad)i] / (c^2+d^2)
+export fn div(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> Complex = {
+  denom = b.re * b.re + b.im * b.im
+  {re = (a.re * b.re + a.im * b.im) / denom,
+   im = (a.im * b.re - a.re * b.im) / denom}
+}
+
+// Negation
+export fn neg(a: Complex) -> Complex = {re = -a.re, im = -a.im}
+
+// =============================================================================
+// TRANSCENDENTAL FUNCTIONS
+// =============================================================================
+
+import exp as _exp, log as _log from primitives
+import cosh as _cosh, sinh as _sinh from primitives
+
+// exp(z) = e^z = e^(a+bi) = e^a * (cos(b) + i*sin(b))
+export fn exp(z: Complex) -> Complex = {
+  r = _exp(z.re)
+  {re = r * _cos(z.im), im = r * _sin(z.im)}
+}
+
+// log(z) = ln|z| + i*arg(z)
+export fn log(z: Complex) -> Complex = {re = _log(abs(z)), im = arg(z)}
+
+// sqrt(z) = sqrt(|z|) * e^(i*arg(z)/2)
+export fn sqrt(z: Complex) -> Complex = {
+  r = _sqrt(abs(z))
+  theta = arg(z) / 2
+  {re = r * _cos(theta), im = r * _sin(theta)}
+}
+
+// pow(a, b) = e^(b * log(a))
+export fn pow(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> Complex =
+  exp(mul(b, log(a)))
+
+// =============================================================================
+// TRIGONOMETRIC FUNCTIONS
+// =============================================================================
+
+// sin(z) = sin(a)cosh(b) + i*cos(a)sinh(b)
+export fn sin(z: Complex) -> Complex =
+  {re = _sin(z.re) * _cosh(z.im), im = _cos(z.re) * _sinh(z.im)}
+
+// cos(z) = cos(a)cosh(b) - i*sin(a)sinh(b)
+export fn cos(z: Complex) -> Complex =
+  {re = _cos(z.re) * _cosh(z.im), im = -_sin(z.re) * _sinh(z.im)}
+
+// tan(z) = sin(z) / cos(z)
+export fn tan(z: Complex) -> Complex = div(sin(z), cos(z))
+
+// =============================================================================
+// HYPERBOLIC FUNCTIONS
+// =============================================================================
+
+// sinh(z) = sinh(a)cos(b) + i*cosh(a)sin(b)
+export fn sinh(z: Complex) -> Complex =
+  {re = _sinh(z.re) * _cos(z.im), im = _cosh(z.re) * _sin(z.im)}
+
+// cosh(z) = cosh(a)cos(b) + i*sinh(a)sin(b)
+export fn cosh(z: Complex) -> Complex =
+  {re = _cosh(z.re) * _cos(z.im), im = _sinh(z.re) * _sin(z.im)}
+
+// tanh(z) = sinh(z) / cosh(z)
+export fn tanh(z: Complex) -> Complex = div(sinh(z), cosh(z))
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+// is_real(z) - check if imaginary part is zero
+export fn is_real(z: Complex) -> bool = z.im == 0
+
+// is_imag(z) - check if real part is zero
+export fn is_imag(z: Complex) -> bool = z.re == 0
+
+// eq(a, b) - equality comparison
+export fn eq(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> bool =
+  a.re == b.re && a.im == b.im
+
+// neq(a, b) - inequality comparison
+export fn neq(a: Complex | to_complex(a), b: Complex | to_complex(b)) -> bool =
+  a.re != b.re || a.im != b.im
+
+// =============================================================================
+// COMPLEX ARRAY CONSTRUCTORS
+// =============================================================================
+
+// czeros(n) - 1D complex array of n complex zeros
+export fn czeros(n: num) {
+    result := evolve { result = [], i = 0 } while (i < n) {
+        result' = push(result, complex(0, 0))
+        i' = i + 1
+    }
+    return(result)
+}
+
+// czeros(m, n) - 2D complex array of m x n complex zeros
+export fn czeros(m: num, n: num) {
+    result := evolve { result = [], i = 0 } while (i < m) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            row' = push(row, complex(0, 0))
+            j' = j + 1
+        }
+        result' = push(result, row)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// ceye(n) - n x n complex identity matrix
+export fn ceye(n: num) {
+    result := evolve { result = [], i = 0 } while (i < n) {
+        row := evolve { row = [], j = 0 } while (j < n) {
+            val = if (i == j) { return(complex(1, 0)) } else { return(complex(0, 0)) }
+            row' = push(row, val)
+            j' = j + 1
+        }
+        result' = push(result, row)
+        i' = i + 1
+    }
+    return(result)
+}
+
+// =============================================================================
+// TYPE CHECKING
+// =============================================================================
+
+// is_complex(x) - check if value is a complex number
+export is_complex from primitives
+
+// is_complex_array(x) - check if value is a complex array
+export is_complex_array from primitives
