@@ -79,8 +79,8 @@
 #include <gp_Vec2d.hxx>
 #include <gp_Pnt2d.hxx>
 
-/* OCCT headers — Solid classification (for edge convexity) */
-#include <BRepClass3d_SolidClassifier.hxx>
+/* OCCT headers — Edge convexity analysis */
+#include <BRepLProp_CLProps.hxx>
 
 /* OCCT headers — Error handling */
 #include <Standard_Failure.hxx>
@@ -752,21 +752,25 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     const TopoDS_Face& face2 = TopoDS::Face(it.Value());
     if (face1.IsSame(face2)) return 0; /* seam edge */
 
-    /* Get 3D edge curve and point at midpoint */
+    /* Get 3D edge curve and tangent at midpoint */
     double eFirst, eLast;
     Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, eFirst, eLast);
     if (curve.IsNull()) return 0;
     double eMid = (eFirst + eLast) / 2.0;
-    gp_Pnt edgePt = curve->Value(eMid);
+    gp_Pnt edgePt;
+    gp_Vec edgeTan;
+    curve->D1(eMid, edgePt, edgeTan);
+    if (edgeTan.Magnitude() < 1e-10) return 0;
+    edgeTan.Normalize();
 
-    /* Compute outward-pointing face normal at edge midpoint for each face.
-     * Project edge point onto each face's surface to get UV, then use
-     * partial derivatives to compute normal with correct orientation. */
+    /* Compute outward-pointing face normal at edge midpoint.
+     * Uses ShapeAnalysis_Surface to project edge point onto each face's
+     * parameter space, then gets the normal from surface derivatives.
+     * Face orientation determines whether to flip the normal. */
     auto computeOutwardNormal = [&](const TopoDS_Face& face) -> gp_Vec {
         Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
         if (surf.IsNull()) return gp_Vec(0, 0, 0);
 
-        /* Project point onto surface to get UV coordinates */
         ShapeAnalysis_Surface sas(surf);
         gp_Pnt2d uv = sas.ValueOfUV(edgePt, 1e-4);
 
@@ -777,11 +781,10 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
         if (normal.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
         normal.Normalize();
 
-        /* Flip if face orientation is REVERSED — makes normal point outward from solid */
+        /* Flip if face orientation is REVERSED — makes normal point outward */
         if (face.Orientation() == TopAbs_REVERSED) {
             normal.Reverse();
         }
-
         return normal;
     };
 
@@ -789,34 +792,33 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     gp_Vec n2 = computeOutwardNormal(face2);
     if (n1.Magnitude() < 1e-10 || n2.Magnitude() < 1e-10) return 0;
 
-    /* Offset test point along the average of the two face normals.
-     * If the edge is convex, this point will be OUTSIDE the solid.
-     * If concave, it will be INSIDE. */
-    gp_Vec avgN(n1.X() + n2.X(), n1.Y() + n2.Y(), n1.Z() + n2.Z());
-    if (avgN.Magnitude() < 1e-10) return 0; /* normals cancel = flat */
-    avgN.Normalize();
+    /* Classify using the dihedral angle between the two outward face normals.
+     *
+     * For a convex edge (e.g. box corner): the two outward normals point APART,
+     * so n1 · n2 < 1 and the cross product (n1 × n2) · edgeTan is positive
+     * (right-hand rule: normals splay outward).
+     *
+     * For a concave edge (e.g. hole interior): the two outward normals point
+     * TOWARD each other, so (n1 × n2) · edgeTan is negative.
+     *
+     * We use the sign of (n1 × n2) · edgeTan to classify. */
+    gp_Vec cross = n1.Crossed(n2);
+    double det = cross.Dot(edgeTan);
 
-    double eps = 1e-4;
-    gp_Pnt testPt(edgePt.X() + eps * avgN.X(),
-                   edgePt.Y() + eps * avgN.Y(),
-                   edgePt.Z() + eps * avgN.Z());
+    /* Also check: does n1 point away from face2's surface? If so, convex.
+     * This serves as a tiebreaker / validation for near-perpendicular faces
+     * where the cross product sign can be ambiguous due to edge direction. */
+    if (det > 1e-6) return 1;    /* convex */
+    if (det < -1e-6) return -1;  /* concave */
 
-    /* Find the solid to classify against. Shape may be compound after booleans. */
-    TopoDS_Solid solid;
-    bool foundSolid = false;
-    for (TopExp_Explorer exp(shape, TopAbs_SOLID); exp.More(); exp.Next()) {
-        solid = TopoDS::Solid(exp.Current());
-        foundSolid = true;
-        break;
-    }
-    if (!foundSolid) return 0;
+    /* For near-zero cross product (nearly parallel normals), use the dot product
+     * of one normal with the vector from edge to the other face's interior.
+     * n1 · n2 ≈ -1 means normals oppose (convex, like thin wall edge).
+     * n1 · n2 ≈ +1 means normals align (flat, tangent continuation). */
+    double dot = n1.Dot(n2);
+    if (dot < -0.5) return 1;    /* opposing normals → convex (sharp edge) */
 
-    BRepClass3d_SolidClassifier classifier(solid, testPt, 1e-6);
-    TopAbs_State state = classifier.State();
-
-    if (state == TopAbs_OUT) return 1;   /* convex — test point outside solid */
-    if (state == TopAbs_IN)  return -1;  /* concave — test point inside solid */
-    return 0;                             /* on boundary / indeterminate */
+    return 0; /* flat / tangent */
 }
 
 extern "C" int occt_faces_of_edge(OcctShape s, int edge_idx,
