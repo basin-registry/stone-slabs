@@ -1,1 +1,5 @@
-export fn greet(name) = "Hello, " + name + "!"
+export fn greet(name: string) -> string =
+  "Hello, " + name + "! Welcome to Stone."
+
+export fn greet_all(names: [string]) -> [string] =
+  names |> map(n -> greet(n))

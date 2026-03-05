@@ -1,3 +1,5 @@
 name = "greeter"
-version = "1.0.0"
-description = "A simple greeting library"
+version = "0.2.0"
+description = "A simple greeter slab for testing stone install"
+author = "alvei"
+license = "MIT"
