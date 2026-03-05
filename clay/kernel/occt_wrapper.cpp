@@ -190,7 +190,7 @@ extern "C" OcctShape occt_make_sphere(double radius,
 
 extern "C" OcctShape occt_make_cone(double radius1, double radius2, double height,
                                     double cx, double cy, double cz) {
-    /* Cone along Z axis. OCCT MakeCone wants R1 > R2 (swap if needed) */
+    /* Cone/frustum along Z axis, centered vertically. Either radius may be 0. */
     gp_Ax2 axis(gp_Pnt(cx, cy, cz - height / 2.0), gp_Dir(0, 0, 1));
     BRepPrimAPI_MakeCone maker(axis, radius1, radius2, height);
     return wrap_shape(maker.Shape());
@@ -358,7 +358,7 @@ extern "C" OcctShape occt_common_multi(OcctShape base, OcctShape* tools, int cou
 extern "C" OcctShape occt_translate(OcctShape s, double dx, double dy, double dz) {
     gp_Trsf trsf;
     trsf.SetTranslation(gp_Vec(dx, dy, dz));
-    BRepBuilderAPI_Transform xform(unwrap(s), trsf, Standard_True);
+    BRepBuilderAPI_Transform xform(unwrap(s), trsf, Standard_False);
     return wrap_shape(xform.Shape());
 }
 
@@ -368,7 +368,7 @@ extern "C" OcctShape occt_rotate(OcctShape s, double angle_deg,
     gp_Ax1 axis(gp_Pnt(cx, cy, cz), gp_Dir(ax, ay, az));
     gp_Trsf trsf;
     trsf.SetRotation(axis, angle_deg * M_PI / 180.0);
-    BRepBuilderAPI_Transform xform(unwrap(s), trsf, Standard_True);
+    BRepBuilderAPI_Transform xform(unwrap(s), trsf, Standard_False);
     return wrap_shape(xform.Shape());
 }
 
@@ -608,17 +608,20 @@ extern "C" int occt_face_normal(OcctShape s, int face_idx,
     Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
     if (surf.IsNull()) return -1;
 
-    /* Get UV bounds and evaluate at center */
-    double u1, u2, v1, v2;
-    BRepTools::UVBounds(face, u1, u2, v1, v2);
-    double u_mid = (u1 + u2) / 2.0;
-    double v_mid = (v1 + v2) / 2.0;
+    /* Get the face's mass centroid and project onto the surface to find UV.
+     * UV bounds center can fall outside the face for non-rectangular trims
+     * (triangular faces, circular faces after booleans, etc.). */
+    GProp_GProps gprops;
+    BRepGProp::SurfaceProperties(face, gprops);
+    gp_Pnt centroid = gprops.CentreOfMass();
 
-    GeomLProp_SLProps props(surf, u_mid, v_mid, 1, 1e-6);
+    ShapeAnalysis_Surface sas(surf);
+    gp_Pnt2d uv = sas.ValueOfUV(centroid, 1e-4);
+
+    GeomLProp_SLProps props(surf, uv.X(), uv.Y(), 1, 1e-6);
     if (!props.IsNormalDefined()) return -1;
 
     gp_Dir normal = props.Normal();
-    /* Reverse if face orientation is reversed */
     if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
 
     *nx = normal.X();
@@ -878,6 +881,7 @@ extern "C" int occt_is_seam_edge(OcctShape s, int edge_idx) {
  * ============================================================================ */
 
 extern "C" OcctShape occt_profile_rect(double width, double height, double cx, double cy) {
+    if (width <= 0 || height <= 0) return nullptr;
     double hw = width / 2.0, hh = height / 2.0;
     gp_Pnt p1(cx - hw, cy - hh, 0);
     gp_Pnt p2(cx + hw, cy - hh, 0);
@@ -891,44 +895,57 @@ extern "C" OcctShape occt_profile_rect(double width, double height, double cx, d
 
     BRepBuilderAPI_MakeWire wire;
     wire.Add(e1); wire.Add(e2); wire.Add(e3); wire.Add(e4);
+    if (!wire.IsDone()) return nullptr;
 
     BRepBuilderAPI_MakeFace face(wire.Wire());
+    if (!face.IsDone()) return nullptr;
     return wrap_shape(face.Shape());
 }
 
 extern "C" OcctShape occt_profile_circle(double radius, double cx, double cy) {
+    if (radius <= 0) return nullptr;
     gp_Ax2 axis(gp_Pnt(cx, cy, 0), gp_Dir(0, 0, 1));
     gp_Circ circ(axis, radius);
-    TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(circ);
-    TopoDS_Wire wire = BRepBuilderAPI_MakeWire(edge);
-    BRepBuilderAPI_MakeFace face(wire);
+    BRepBuilderAPI_MakeEdge me(circ);
+    if (!me.IsDone()) return nullptr;
+    BRepBuilderAPI_MakeWire mw(me.Edge());
+    if (!mw.IsDone()) return nullptr;
+    BRepBuilderAPI_MakeFace face(mw.Wire());
+    if (!face.IsDone()) return nullptr;
     return wrap_shape(face.Shape());
 }
 
 extern "C" OcctShape occt_profile_ellipse(double rx, double ry, double cx, double cy) {
+    if (rx <= 0 || ry <= 0) return nullptr;
     gp_Ax2 axis(gp_Pnt(cx, cy, 0), gp_Dir(0, 0, 1));
     /* gp_Elips requires major >= minor. Swap if needed. */
     double major = rx >= ry ? rx : ry;
     double minor = rx >= ry ? ry : rx;
     gp_Elips elips(axis, major, minor);
-    TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(elips);
-    TopoDS_Wire wire = BRepBuilderAPI_MakeWire(edge);
-    BRepBuilderAPI_MakeFace face(wire);
+    BRepBuilderAPI_MakeEdge me(elips);
+    if (!me.IsDone()) return nullptr;
+    BRepBuilderAPI_MakeWire mw(me.Edge());
+    if (!mw.IsDone()) return nullptr;
+    BRepBuilderAPI_MakeFace face(mw.Wire());
+    if (!face.IsDone()) return nullptr;
     return wrap_shape(face.Shape());
 }
 
 extern "C" OcctShape occt_profile_polygon(double* points, int n_points) {
-    if (n_points < 3) return nullptr;
+    if (n_points < 3 || !points) return nullptr;
 
     BRepBuilderAPI_MakeWire wire;
     for (int i = 0; i < n_points; i++) {
         int j = (i + 1) % n_points;
         gp_Pnt p1(points[i * 2], points[i * 2 + 1], 0);
         gp_Pnt p2(points[j * 2], points[j * 2 + 1], 0);
+        if (p1.Distance(p2) < 1e-10) continue; /* skip degenerate edges */
         wire.Add(BRepBuilderAPI_MakeEdge(p1, p2));
     }
+    if (!wire.IsDone()) return nullptr;
 
     BRepBuilderAPI_MakeFace face(wire.Wire());
+    if (!face.IsDone()) return nullptr;
     return wrap_shape(face.Shape());
 }
 
