@@ -1,0 +1,17 @@
+// csv — CSV parsing and encoding
+//
+// Usage:
+//   import parse from csv
+//   rows = parse("x,y\n1,2\n3,4")
+//
+// parse(string) - Parse CSV into 2D string array
+// parse(string, Schema) - Parse with schema-driven type conversion
+// parse(string, Schema, options) - Parse with schema + options
+//
+// Options:
+//   delimiter - Field separator (default: ",")
+//   columns   - Positional column-to-field mapping
+
+import csv from primitives
+
+export fn parse(s) = csv(s)
