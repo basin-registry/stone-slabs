@@ -1,0 +1,19 @@
+// test — Testing utilities for Stone programs
+
+export fn helper(xs) {
+    total, count := evolve { total = 0, count = 0 } for(x in xs) {
+        total' = total + x
+        count' = count + 1
+    }
+    return(total / count)
+}
+
+export fn useHelper(xs) {
+    n = len(xs)
+    m = helper(xs)
+    sumSq = evolve (sumSq = 0) for(x in xs) {
+        diff = x - m
+        sumSq' = sumSq + diff * diff
+    }
+    return(sumSq / n)
+}
