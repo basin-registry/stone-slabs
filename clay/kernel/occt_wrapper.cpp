@@ -79,8 +79,7 @@
 #include <gp_Vec2d.hxx>
 #include <gp_Pnt2d.hxx>
 
-/* OCCT headers — Edge convexity analysis */
-#include <BRepLProp_CLProps.hxx>
+/* (reserved) */
 
 /* OCCT headers — Error handling */
 #include <Standard_Failure.hxx>
@@ -752,21 +751,17 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     const TopoDS_Face& face2 = TopoDS::Face(it.Value());
     if (face1.IsSame(face2)) return 0; /* seam edge */
 
-    /* Get 3D edge curve and tangent at midpoint */
+    /* Get edge midpoint */
     double eFirst, eLast;
     Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, eFirst, eLast);
     if (curve.IsNull()) return 0;
     double eMid = (eFirst + eLast) / 2.0;
-    gp_Pnt edgePt;
-    gp_Vec edgeTan;
-    curve->D1(eMid, edgePt, edgeTan);
-    if (edgeTan.Magnitude() < 1e-10) return 0;
-    edgeTan.Normalize();
+    gp_Pnt edgePt = curve->Value(eMid);
 
     /* Compute outward-pointing face normal at edge midpoint.
-     * Uses ShapeAnalysis_Surface to project edge point onto each face's
-     * parameter space, then gets the normal from surface derivatives.
-     * Face orientation determines whether to flip the normal. */
+     * Projects edge point onto the face surface to get UV, then uses
+     * surface partial derivatives for the normal. Face orientation
+     * determines flip direction. */
     auto computeOutwardNormal = [&](const TopoDS_Face& face) -> gp_Vec {
         Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
         if (surf.IsNull()) return gp_Vec(0, 0, 0);
@@ -781,7 +776,6 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
         if (normal.Magnitude() < 1e-10) return gp_Vec(0, 0, 0);
         normal.Normalize();
 
-        /* Flip if face orientation is REVERSED — makes normal point outward */
         if (face.Orientation() == TopAbs_REVERSED) {
             normal.Reverse();
         }
@@ -792,33 +786,33 @@ extern "C" int occt_edge_convexity(OcctShape s, int edge_idx) {
     gp_Vec n2 = computeOutwardNormal(face2);
     if (n1.Magnitude() < 1e-10 || n2.Magnitude() < 1e-10) return 0;
 
-    /* Classify using the dihedral angle between the two outward face normals.
+    /* Edge-direction-independent convexity classification.
      *
-     * For a convex edge (e.g. box corner): the two outward normals point APART,
-     * so n1 · n2 < 1 and the cross product (n1 × n2) · edgeTan is positive
-     * (right-hand rule: normals splay outward).
+     * Offset a test point along face1's outward normal, then project it onto
+     * face2's surface. The signed distance tells us which side of face2 the
+     * test point lands on:
+     *   - On face2's outward (air) side → face1's normal points away from face2 → convex
+     *   - On face2's inward (material) side → face1's normal points into face2 → concave
      *
-     * For a concave edge (e.g. hole interior): the two outward normals point
-     * TOWARD each other, so (n1 × n2) · edgeTan is negative.
-     *
-     * We use the sign of (n1 × n2) · edgeTan to classify. */
-    gp_Vec cross = n1.Crossed(n2);
-    double det = cross.Dot(edgeTan);
+     * This is independent of edge tangent direction. */
+    double eps = 1e-3;
+    gp_Pnt testPt(edgePt.X() + eps * n1.X(),
+                   edgePt.Y() + eps * n1.Y(),
+                   edgePt.Z() + eps * n1.Z());
 
-    /* Also check: does n1 point away from face2's surface? If so, convex.
-     * This serves as a tiebreaker / validation for near-perpendicular faces
-     * where the cross product sign can be ambiguous due to edge direction. */
-    if (det > 1e-6) return 1;    /* convex */
-    if (det < -1e-6) return -1;  /* concave */
+    Handle(Geom_Surface) surf2 = BRep_Tool::Surface(face2);
+    if (surf2.IsNull()) return 0;
 
-    /* For near-zero cross product (nearly parallel normals), use the dot product
-     * of one normal with the vector from edge to the other face's interior.
-     * n1 · n2 ≈ -1 means normals oppose (convex, like thin wall edge).
-     * n1 · n2 ≈ +1 means normals align (flat, tangent continuation). */
-    double dot = n1.Dot(n2);
-    if (dot < -0.5) return 1;    /* opposing normals → convex (sharp edge) */
+    GeomAPI_ProjectPointOnSurf proj(testPt, surf2);
+    if (proj.NbPoints() == 0) return 0;
 
-    return 0; /* flat / tangent */
+    gp_Pnt closest = proj.NearestPoint();
+    gp_Vec toTest(closest, testPt);
+    double signedDist = toTest.Dot(n2);
+
+    if (signedDist > 1e-7) return 1;    /* convex */
+    if (signedDist < -1e-7) return -1;  /* concave */
+    return 0;
 }
 
 extern "C" int occt_faces_of_edge(OcctShape s, int edge_idx,
