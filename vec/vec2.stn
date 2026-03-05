@@ -1,0 +1,200 @@
+// vec/vec2.stn - 2D Vector Utilities
+// Pure math operations on array-based vectors
+//
+// Usage:
+//   import add, sub, mul, magnitude, normalize from vec/vec2
+//   v = add([1, 2], [3, 4])  // [4, 6]
+
+import sqrt, sin, cos, atan2, abs from primitives
+
+// =============================================================================
+// BASIC OPERATIONS
+// =============================================================================
+
+// Vector addition
+export fn add(a, b) = {
+    x = a[0] + b[0]
+    y = a[1] + b[1]
+    return([x, y])
+}
+
+// Vector subtraction
+export fn sub(a, b) = {
+    x = a[0] - b[0]
+    y = a[1] - b[1]
+    return([x, y])
+}
+
+// Scalar multiplication
+export fn mul(v, s) = {
+    x = v[0] * s
+    y = v[1] * s
+    return([x, y])
+}
+
+// Scalar division
+export fn div(v, s) = {
+    x = v[0] / s
+    y = v[1] / s
+    return([x, y])
+}
+
+// Negation
+export fn neg(v) = {
+    x = -v[0]
+    y = -v[1]
+    return([x, y])
+}
+
+// Component-wise multiplication
+export fn mul_comp(a, b) = {
+    x = a[0] * b[0]
+    y = a[1] * b[1]
+    return([x, y])
+}
+
+// Component-wise division
+export fn div_comp(a, b) = {
+    x = a[0] / b[0]
+    y = a[1] / b[1]
+    return([x, y])
+}
+
+// =============================================================================
+// PRODUCTS
+// =============================================================================
+
+// Dot product
+export fn dot(a, b) = a[0] * b[0] + a[1] * b[1]
+
+// 2D cross product (returns scalar: the z-component of 3D cross)
+export fn cross(a, b) = a[0] * b[1] - a[1] * b[0]
+
+// =============================================================================
+// LENGTH & DISTANCE
+// =============================================================================
+
+// Vector length (magnitude)
+export fn magnitude(v) = sqrt(v[0] * v[0] + v[1] * v[1])
+
+// Squared length (avoid sqrt when comparing lengths)
+export fn len_sq(v) = v[0] * v[0] + v[1] * v[1]
+
+// Distance between two points
+export fn dist(a, b) = magnitude(sub(a, b))
+
+// Squared distance (avoid sqrt when comparing distances)
+export fn dist_sq(a, b) = len_sq(sub(a, b))
+
+// Normalize to unit vector
+export fn normalize(v) = {
+    l = magnitude(v)
+    if (l == 0) { return([0, 0]) }
+    x = v[0] / l
+    y = v[1] / l
+    return([x, y])
+}
+
+// Set vector to specific length
+export fn set_len(v, length) = mul(normalize(v), length)
+
+// =============================================================================
+// ANGLES & ROTATION
+// =============================================================================
+
+// Angle of vector from positive X axis (radians)
+export fn angle(v) = atan2(v[1], v[0])
+
+// Signed angle between two vectors (radians)
+export fn angle_between(a, b) = atan2(cross(a, b), dot(a, b))
+
+// Rotate vector by angle (radians)
+export fn rotate(v, ang) = {
+    c = cos(ang)
+    s = sin(ang)
+    x = v[0] * c - v[1] * s
+    y = v[0] * s + v[1] * c
+    return([x, y])
+}
+
+// Perpendicular vector (90 counter-clockwise)
+export fn perp(v) = {
+    x = -v[1]
+    y = v[0]
+    return([x, y])
+}
+
+// Perpendicular vector (90 clockwise)
+export fn perp_cw(v) = {
+    x = v[1]
+    y = -v[0]
+    return([x, y])
+}
+
+// =============================================================================
+// INTERPOLATION & PROJECTION
+// =============================================================================
+
+// Linear interpolation between two vectors
+export fn lerp(a, b, t) = {
+    x = a[0] + (b[0] - a[0]) * t
+    y = a[1] + (b[1] - a[1]) * t
+    return([x, y])
+}
+
+// Reflect vector off surface with given normal
+export fn reflect(v, normal) =
+    sub(v, mul(normal, 2 * dot(v, normal)))
+
+// Project vector onto another vector
+export fn project(v, onto) =
+    mul(onto, dot(v, onto) / len_sq(onto))
+
+// Reject vector from another (perpendicular component)
+export fn reject(v, basis) =
+    sub(v, project(v, basis))
+
+// =============================================================================
+// COMPARISON
+// =============================================================================
+
+// Approximate equality with epsilon
+export fn eq(a, b, epsilon = 1e-10) =
+    abs(a[0] - b[0]) < epsilon && abs(a[1] - b[1]) < epsilon
+
+// Check if vector is zero (within epsilon)
+export fn is_zero(v, epsilon = 1e-10) =
+    abs(v[0]) < epsilon && abs(v[1]) < epsilon
+
+// =============================================================================
+// COMPONENT ACCESS
+// =============================================================================
+
+// Min component
+export fn min_comp(v) = if (v[0] < v[1]) { v[0] } else { v[1] }
+
+// Max component
+export fn max_comp(v) = if (v[0] > v[1]) { v[0] } else { v[1] }
+
+// Component-wise min of two vectors
+export fn min_vec(a, b) = {
+    x = if (a[0] < b[0]) { a[0] } else { b[0] }
+    y = if (a[1] < b[1]) { a[1] } else { b[1] }
+    return([x, y])
+}
+
+// Component-wise max of two vectors
+export fn max_vec(a, b) = {
+    x = if (a[0] > b[0]) { a[0] } else { b[0] }
+    y = if (a[1] > b[1]) { a[1] } else { b[1] }
+    return([x, y])
+}
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+export ZERO = [0, 0]
+export ONE = [1, 1]
+export UNIT_X = [1, 0]
+export UNIT_Y = [0, 1]

@@ -1,0 +1,28 @@
+// vec — Vector Math Library
+// 2D and 3D vector operations on array-based vectors
+//
+// Usage:
+//   import vec2_add, vec2_dot from vec
+//   import vec3_cross, vec3_normalize from vec
+//
+// Or import from specific submodules:
+//   import add, dot, magnitude from vec/vec2
+//   import cross, normalize from vec/vec3
+
+// 2D vector operations
+export add as vec2_add, sub as vec2_sub, mul as vec2_mul,
+       dot as vec2_dot, cross as vec2_cross,
+       magnitude as vec2_magnitude, normalize as vec2_normalize,
+       distance as vec2_distance, angle as vec2_angle,
+       rotate as vec2_rotate, lerp as vec2_lerp,
+       project as vec2_project, reflect as vec2_reflect,
+       perpendicular as vec2_perpendicular from vec/vec2
+
+// 3D vector operations
+export add as vec3_add, sub as vec3_sub, mul as vec3_mul,
+       dot as vec3_dot, cross as vec3_cross,
+       magnitude as vec3_magnitude, normalize as vec3_normalize,
+       distance as vec3_distance, angle as vec3_angle,
+       lerp as vec3_lerp,
+       project as vec3_project, reflect as vec3_reflect,
+       rotate_x as vec3_rotate_x, rotate_y as vec3_rotate_y, rotate_z as vec3_rotate_z from vec/vec3

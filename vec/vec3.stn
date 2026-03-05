@@ -1,0 +1,245 @@
+// vec/vec3.stn - 3D Vector Utilities
+// Pure math operations on array-based vectors
+//
+// Coordinate system: Z-up, right-handed
+//   UNIT_X = [1, 0, 0] (right)
+//   UNIT_Y = [0, 1, 0] (forward)
+//   UNIT_Z = [0, 0, 1] (up)
+//   Rotations follow right-hand rule (positive = counter-clockwise)
+//
+// Usage:
+//   import add, sub, mul, magnitude, normalize, cross from vec3
+//   v = cross([1, 0, 0], [0, 1, 0])  // [0, 0, 1] (right × forward = up)
+
+import sqrt, sin, cos, atan2, abs from primitives
+
+// =============================================================================
+// BASIC OPERATIONS
+// =============================================================================
+
+// Vector addition
+export fn add(a, b) = {
+    x = a[0] + b[0]
+    y = a[1] + b[1]
+    z = a[2] + b[2]
+    return([x, y, z])
+}
+
+// Vector subtraction
+export fn sub(a, b) = {
+    x = a[0] - b[0]
+    y = a[1] - b[1]
+    z = a[2] - b[2]
+    return([x, y, z])
+}
+
+// Scalar multiplication
+export fn mul(v, s) = {
+    x = v[0] * s
+    y = v[1] * s
+    z = v[2] * s
+    return([x, y, z])
+}
+
+// Scalar division
+export fn div(v, s) = {
+    x = v[0] / s
+    y = v[1] / s
+    z = v[2] / s
+    return([x, y, z])
+}
+
+// Negation
+export fn neg(v) = {
+    x = -v[0]
+    y = -v[1]
+    z = -v[2]
+    return([x, y, z])
+}
+
+// Component-wise multiplication
+export fn mul_comp(a, b) = {
+    x = a[0] * b[0]
+    y = a[1] * b[1]
+    z = a[2] * b[2]
+    return([x, y, z])
+}
+
+// Component-wise division
+export fn div_comp(a, b) = {
+    x = a[0] / b[0]
+    y = a[1] / b[1]
+    z = a[2] / b[2]
+    return([x, y, z])
+}
+
+// =============================================================================
+// PRODUCTS
+// =============================================================================
+
+// Dot product
+export fn dot(a, b) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+// Cross product
+export fn cross(a, b) = {
+    x = a[1] * b[2] - a[2] * b[1]
+    y = a[2] * b[0] - a[0] * b[2]
+    z = a[0] * b[1] - a[1] * b[0]
+    return([x, y, z])
+}
+
+// =============================================================================
+// LENGTH & DISTANCE
+// =============================================================================
+
+// Vector length (magnitude)
+export fn magnitude(v) = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+
+// Squared length (avoid sqrt when comparing lengths)
+export fn len_sq(v) = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+
+// Distance between two points
+export fn dist(a, b) = magnitude(sub(a, b))
+
+// Squared distance (avoid sqrt when comparing distances)
+export fn dist_sq(a, b) = len_sq(sub(a, b))
+
+// Normalize to unit vector
+export fn normalize(v) = {
+    l = magnitude(v)
+    if (l == 0) { return([0, 0, 0]) }
+    x = v[0] / l
+    y = v[1] / l
+    z = v[2] / l
+    return([x, y, z])
+}
+
+// Set vector to specific length
+export fn set_len(v, length) = mul(normalize(v), length)
+
+// =============================================================================
+// ROTATION
+// =============================================================================
+
+// Rotate around X axis
+export fn rotate_x(v, angle) = {
+    c = cos(angle)
+    s = sin(angle)
+    rx = v[0]
+    ry = v[1] * c - v[2] * s
+    rz = v[1] * s + v[2] * c
+    return([rx, ry, rz])
+}
+
+// Rotate around Y axis
+export fn rotate_y(v, angle) = {
+    c = cos(angle)
+    s = sin(angle)
+    rx = v[0] * c + v[2] * s
+    ry = v[1]
+    rz = -v[0] * s + v[2] * c
+    return([rx, ry, rz])
+}
+
+// Rotate around Z axis
+export fn rotate_z(v, angle) = {
+    c = cos(angle)
+    s = sin(angle)
+    rx = v[0] * c - v[1] * s
+    ry = v[0] * s + v[1] * c
+    rz = v[2]
+    return([rx, ry, rz])
+}
+
+// Rotate around arbitrary axis (Rodrigues' rotation formula)
+export fn rotate_around(v, axis, angle) = {
+    k = normalize(axis)
+    c = cos(angle)
+    s = sin(angle)
+    // v * cos(a) + (k cross v) * sin(a) + k * (k dot v) * (1 - cos(a))
+    return(add(add(mul(v, c), mul(cross(k, v), s)), mul(k, dot(k, v) * (1 - c))))
+}
+
+// =============================================================================
+// INTERPOLATION & PROJECTION
+// =============================================================================
+
+// Linear interpolation between two vectors
+export fn lerp(a, b, t) = {
+    x = a[0] + (b[0] - a[0]) * t
+    y = a[1] + (b[1] - a[1]) * t
+    z = a[2] + (b[2] - a[2]) * t
+    return([x, y, z])
+}
+
+// Reflect vector off surface with given normal
+export fn reflect(v, normal) =
+    sub(v, mul(normal, 2 * dot(v, normal)))
+
+// Project vector onto another vector
+export fn project(v, onto) =
+    mul(onto, dot(v, onto) / len_sq(onto))
+
+// Reject vector from another (perpendicular component)
+export fn reject(v, basis) =
+    sub(v, project(v, basis))
+
+// Project point onto plane defined by point and normal
+export fn project_on_plane(pt, plane_pt, normal) = {
+    d = dot(sub(pt, plane_pt), normal)
+    return(sub(pt, mul(normal, d)))
+}
+
+// =============================================================================
+// COMPARISON
+// =============================================================================
+
+// Approximate equality with epsilon
+export fn eq(a, b, epsilon = 1e-10) =
+    abs(a[0] - b[0]) < epsilon && abs(a[1] - b[1]) < epsilon && abs(a[2] - b[2]) < epsilon
+
+// Check if vector is zero (within epsilon)
+export fn is_zero(v, epsilon = 1e-10) =
+    abs(v[0]) < epsilon && abs(v[1]) < epsilon && abs(v[2]) < epsilon
+
+// =============================================================================
+// COMPONENT ACCESS
+// =============================================================================
+
+// Min component
+export fn min_comp(v) = {
+    m = if (v[0] < v[1]) { v[0] } else { v[1] }
+    return(if (m < v[2]) { m } else { v[2] })
+}
+
+// Max component
+export fn max_comp(v) = {
+    m = if (v[0] > v[1]) { v[0] } else { v[1] }
+    return(if (m > v[2]) { m } else { v[2] })
+}
+
+// Component-wise min of two vectors
+export fn min_vec(a, b) = {
+    x = if (a[0] < b[0]) { a[0] } else { b[0] }
+    y = if (a[1] < b[1]) { a[1] } else { b[1] }
+    z = if (a[2] < b[2]) { a[2] } else { b[2] }
+    return([x, y, z])
+}
+
+// Component-wise max of two vectors
+export fn max_vec(a, b) = {
+    x = if (a[0] > b[0]) { a[0] } else { b[0] }
+    y = if (a[1] > b[1]) { a[1] } else { b[1] }
+    z = if (a[2] > b[2]) { a[2] } else { b[2] }
+    return([x, y, z])
+}
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+export ZERO = [0, 0, 0]
+export ONE = [1, 1, 1]
+export UNIT_X = [1, 0, 0]   // right
+export UNIT_Y = [0, 1, 0]   // forward
+export UNIT_Z = [0, 0, 1]   // up

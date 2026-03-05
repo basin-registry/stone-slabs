@@ -1,0 +1,4 @@
+name = "vec"
+version = "0.1.0"
+entry = "main.stn"
+description = "2D and 3D vector math: add, dot, cross, normalize, rotate, project, reflect"
