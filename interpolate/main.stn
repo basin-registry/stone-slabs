@@ -1,0 +1,266 @@
+// interpolate — Interpolation Library
+// Provides interpolation and lookup table functions
+//
+// Usage: import interp1_linear, lookup1d from interpolate
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// Binary search to find index i such that x is between breakpoints[i] and breakpoints[i+1]
+// Returns index of lower breakpoint (clamped to valid range)
+fn _binary_search(breakpoints, x) {
+    n = len(breakpoints)
+
+    // Handle edge cases - clamp to valid range
+    if (x <= breakpoints[0]) {
+        return(0)
+    }
+    if (x >= breakpoints[n - 1]) {
+        return(n - 2)
+    }
+
+    // Binary search
+    result = evolve { lo = 0, hi = n - 1 } while (hi - lo > 1) {
+        mid = floor((lo + hi) / 2)
+        if (x < breakpoints[mid]) {
+            hi' = mid
+        } else {
+            lo' = mid
+        }
+    }
+    return(result.lo)
+}
+
+// =============================================================================
+// PRE-LOOKUP
+// =============================================================================
+
+// prelookup(breakpoints, x) - Find index and interpolation fraction
+// Returns { index, fraction } where:
+//   - index: lower breakpoint index
+//   - fraction: interpolation weight (0 = at lower, 1 = at upper)
+// Clamps to valid range for extrapolation
+export fn prelookup(breakpoints, x) {
+    n = len(breakpoints)
+
+    // Handle edge cases
+    if (n < 2) {
+        return({ index = 0, fraction = 0 })
+    }
+
+    // Get bounds for comparison
+    bp_first = breakpoints[0]
+    bp_last = breakpoints[n - 1]
+
+    // Clamp to valid range
+    if (x < bp_first) {
+        return({ index = 0, fraction = 0 })
+    }
+
+    if (x > bp_last) {
+        return({ index = n - 2, fraction = 1 })
+    }
+
+    // At exactly first point
+    if (x == bp_first) {
+        return({ index = 0, fraction = 0 })
+    }
+
+    // At exactly last point
+    if (x == bp_last) {
+        return({ index = n - 2, fraction = 1 })
+    }
+
+    // Find interval using binary search
+    idx = _binary_search(breakpoints, x)
+
+    // Compute fraction
+    x0 = breakpoints[idx]
+    x1 = breakpoints[idx + 1]
+    dx = x1 - x0
+
+    frac = if (abs(dx) < 1e-15) { return(0) } else { return((x - x0) / dx) }
+
+    return({ index = idx, fraction = frac })
+}
+
+// =============================================================================
+// 1D INTERPOLATION
+// =============================================================================
+
+// interp1_linear(x, y, xi) - 1D linear interpolation (scalar query)
+// x: breakpoints (sorted, ascending)
+// y: values at breakpoints
+// xi: query point (scalar)
+// Returns interpolated value
+// Clamps to boundary values for extrapolation
+export fn interp1_linear(x, y, xi) {
+    n = len(x)
+
+    if (n != len(y)) {
+        error("interp1_linear: x and y must have same length")
+    }
+
+    if (n < 2) {
+        error("interp1_linear: need at least 2 points")
+    }
+
+    pl = prelookup(x, xi)
+    y0 = y[pl.index]
+    y1 = y[pl.index + 1]
+    return(y0 + pl.fraction * (y1 - y0))
+}
+
+// interp1_linear_arr(x, y, xi_arr) - 1D linear interpolation for array of query points
+export fn interp1_linear_arr(x, y, xi_arr) {
+    xi_len = len(xi_arr)
+    result = evolve { result = [], i = 0 } while (i < xi_len) {
+        xi_val = xi_arr[i]
+        yi = interp1_linear(x, y, xi_val)
+        result' = push(result, yi)
+        i' = i + 1
+    }
+    return(result.result)
+}
+
+// interp1_nearest(x, y, xi) - 1D nearest neighbor interpolation (scalar query)
+// Returns value at nearest breakpoint
+export fn interp1_nearest(x, y, xi) {
+    n = len(x)
+
+    if (n != len(y)) {
+        error("interp1_nearest: x and y must have same length")
+    }
+
+    if (n < 1) {
+        error("interp1_nearest: need at least 1 point")
+    }
+
+    if (n == 1) {
+        return(y[0])
+    }
+
+    pl = prelookup(x, xi)
+    // Choose nearest based on fraction - use if/else as expression
+    idx = if (pl.fraction < 0.5) { return(pl.index) } else { return(pl.index + 1) }
+    return(y[idx])
+}
+
+// interp1_nearest_arr(x, y, xi_arr) - 1D nearest interpolation for array of query points
+export fn interp1_nearest_arr(x, y, xi_arr) {
+    xi_len = len(xi_arr)
+    result = evolve { result = [], i = 0 } while (i < xi_len) {
+        xi_val = xi_arr[i]
+        yi = interp1_nearest(x, y, xi_val)
+        result' = push(result, yi)
+        i' = i + 1
+    }
+    return(result.result)
+}
+
+// =============================================================================
+// LOOKUP TABLES
+// =============================================================================
+
+// lookup1d(table, breakpoints, input) - 1D lookup table with linear interpolation
+// table: values at breakpoints
+// breakpoints: input breakpoints (sorted, ascending)
+// input: query value (scalar)
+// Returns interpolated output value
+export fn lookup1d(table, breakpoints, input) {
+    return(interp1_linear(breakpoints, table, input))
+}
+
+// lookup2d(table, row_bp, col_bp, row_in, col_in) - 2D lookup table with bilinear interpolation
+// table: 2D array of values [row][col]
+// row_bp: row breakpoints
+// col_bp: column breakpoints
+// row_in: row query value
+// col_in: column query value
+// Returns interpolated output value
+export fn lookup2d(table, row_bp, col_bp, row_in, col_in) {
+    // Get row and column prelookup results
+    row_pl = prelookup(row_bp, row_in)
+    col_pl = prelookup(col_bp, col_in)
+
+    ri = row_pl.index
+    rf = row_pl.fraction
+    ci = col_pl.index
+    cf = col_pl.fraction
+
+    // Get four corner values
+    v00 = table[ri][ci]
+    v01 = table[ri][ci + 1]
+    v10 = table[ri + 1][ci]
+    v11 = table[ri + 1][ci + 1]
+
+    // Bilinear interpolation
+    // First interpolate along columns (for both rows)
+    v0 = v00 + cf * (v01 - v00)
+    v1 = v10 + cf * (v11 - v10)
+
+    // Then interpolate along rows
+    return(v0 + rf * (v1 - v0))
+}
+
+// =============================================================================
+// 2D INTERPOLATION
+// =============================================================================
+
+// interp2_linear(x, y, z, xi, yi) - 2D bilinear interpolation
+// x: x-axis breakpoints (columns)
+// y: y-axis breakpoints (rows)
+// z: 2D array of values z[row][col]
+// xi, yi: query point
+// Returns interpolated value
+export fn interp2_linear(x, y, z, xi, yi) {
+    return(lookup2d(z, y, x, yi, xi))
+}
+
+// interp2_nearest(x, y, z, xi, yi) - 2D nearest neighbor interpolation
+export fn interp2_nearest(x, y, z, xi, yi) {
+    // Get nearest indices
+    row_pl = prelookup(y, yi)
+    col_pl = prelookup(x, xi)
+
+    ri = if (row_pl.fraction < 0.5) { return(row_pl.index) } else { return(row_pl.index + 1) }
+    ci = if (col_pl.fraction < 0.5) { return(col_pl.index) } else { return(col_pl.index + 1) }
+
+    // Clamp to valid range
+    n_rows = len(z)
+    n_cols = len(z[0])
+    ri_clamped = min(max(ri, 0), n_rows - 1)
+    ci_clamped = min(max(ci, 0), n_cols - 1)
+
+    return(z[ri_clamped][ci_clamped])
+}
+
+// =============================================================================
+// GENERAL INTERP1 WITH METHOD SELECTION
+// =============================================================================
+
+// interp1(x, y, xi, method) - 1D interpolation with method selection
+// method: "linear" or "nearest"
+export fn interp1(x, y, xi, method) {
+    // Use separate if blocks to avoid elif issues
+    if (method == "linear") {
+        return(interp1_linear(x, y, xi))
+    }
+    if (method == "nearest") {
+        return(interp1_nearest(x, y, xi))
+    }
+    error("interp1: unknown method '" + method + "', use 'linear' or 'nearest'")
+}
+
+// interp2(x, y, z, xi, yi, method) - 2D interpolation with method selection
+export fn interp2(x, y, z, xi, yi, method) {
+    // Use separate if blocks to avoid elif issues
+    if (method == "linear") {
+        return(interp2_linear(x, y, z, xi, yi))
+    }
+    if (method == "nearest") {
+        return(interp2_nearest(x, y, z, xi, yi))
+    }
+    error("interp2: unknown method '" + method + "', use 'linear' or 'nearest'")
+}
