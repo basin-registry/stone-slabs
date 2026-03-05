@@ -1,0 +1,189 @@
+// display.stn - Declarative Display System
+//
+// All displays are first-class values - records you create, configure,
+// compose, and explicitly show(). This is a purely declarative API.
+//
+// Usage:
+//   import canvas2d, canvas3d, show from display
+//   import graph2d from plots
+//
+//   show(canvas2d({ title = "My Canvas", objects = [...] }))
+//
+// For data viz convenience (includes plot types like line, scatter, surface):
+//   import graph2d, line, scatter from plots
+
+// =============================================================================
+// RUNTIME _show IMPORT
+// =============================================================================
+
+import _show from _display
+
+// =============================================================================
+// ANIMATION WRAPPER TYPES + DOMAIN SCHEMAS (shared by all displays)
+// =============================================================================
+
+// Property-level animation wrappers.
+// vary(data, ...) returns { data, varies } and reveal(data, ...) returns { data, reveals }.
+
+// AnimateWrapper and RevealWrapper schemas
+export AnimateWrapper = {
+    data: array<T, R>,
+    varies: string | dict<num>
+}
+
+export RevealWrapper = {
+    data: array<T, R>,
+    reveals: string | dict<num>
+}
+
+// Playback configuration for animated domains
+export PlaybackConfig = {
+    timestep: num = 100,
+    loop: bool = true,
+    autoplay: bool = false,
+    enabled: bool = true
+}
+
+// Domain configuration for animation controls
+export DomainConfig = {
+    values: array<num, 1> = [],
+    label: string = "",
+    playback: PlaybackConfig = {},
+    reverse: bool = false
+}
+
+// =============================================================================
+// DISPLAY SCHEMAS (with _type field for runtime dispatch)
+// =============================================================================
+
+// Canvas2D display schema
+export Canvas2D = {
+    _type: string = "canvas2d",
+    title: string = "Canvas",
+    width: num = 800,
+    height: num = 600,
+    background: string = "",
+    origin: string = "bottom-left",
+    axes: bool = false,
+    grid: bool = false,
+    pixel_ratio: num = 1,
+    domains: dict<DomainConfig> = {},
+    objects: array<Shape2D, 1> = []
+}
+
+// Camera config for 3D canvas
+export CameraConfig = {
+    position: array<num, 1> = [5, 5, 5],
+    target: array<num, 1> = [0, 0, 0],
+    up: array<num, 1> = [0, 0, 1],
+    fov: num = 60,
+    near: num = 0.1,
+    far: num = 1000
+}
+
+// Controls config for 3D canvas
+export ControlsConfig = {
+    orbit: bool = true,
+    pan: bool = true,
+    zoom: bool = true
+}
+
+// Grid config for 3D canvas
+export GridConfig = {
+    show: bool = false,
+    plane: string = "xy",
+    size: num = 20,
+    divisions: num = 20,
+    color1: string = "",
+    color2: string = ""
+}
+
+// Canvas3D display schema
+export Canvas3D = {
+    _type: string = "canvas3d",
+    title: string = "3D Canvas",
+    background: string = "",
+    camera: CameraConfig = {},
+    controls: ControlsConfig = {},
+    axes: bool = false,
+    grid: GridConfig = {},
+    antialias: bool = true,
+    domains: dict<DomainConfig> = {},
+    objects: array<Shape3D, 1> = []
+}
+
+// Graph2D display schema
+export Graph2D = {
+    _type: string = "graph2d",
+    title: string = "Graph",
+    x_label: string = "x",
+    y_label: string = "y",
+    x_scale: string = "linear",
+    y_scale: string = "linear",
+    x_min: num = 0,
+    x_max: num = 0,
+    y_min: num = 0,
+    y_max: num = 0,
+    grid: bool = true,
+    legend: bool = true,
+    domains: dict<DomainConfig> = {},
+    plots: array<Plot2D, 1> = []
+}
+
+// Graph3D display schema
+export Graph3D = {
+    _type: string = "graph3d",
+    title: string = "3D Graph",
+    background: string = "",
+    axes: bool = true,
+    grid: bool = true,
+    domains: dict<DomainConfig> = {},
+    plots: array<Plot3D, 1> = []
+}
+
+// Panel schema - groups multiple displays with shared domains
+export Panel = {
+    _type: string = "panel",
+    displays: array<T, 1> = [],
+    domains: dict<DomainConfig> = {},
+    layout: string = "row",
+    title: string = ""
+}
+
+// =============================================================================
+// PURE CONSTRUCTORS - return(records, no side effects)
+// =============================================================================
+
+// Canvas2D constructor - pure function, returns display record
+export fn canvas2d(config: Canvas2D) = config
+
+// Canvas3D constructor - pure function, returns display record
+export fn canvas3d(config: Canvas3D) = config
+
+// Graph2D constructor - pure function, returns display record
+export fn graph2d(config: Graph2D) = config
+
+// Graph3D constructor - pure function, returns display record
+export fn graph3d(config: Graph3D) = config
+
+// Panel constructor - pure function, returns panel record
+export fn panel(config: Panel) = config
+
+// =============================================================================
+// show() - The single side effect for displaying output
+// =============================================================================
+
+// Show a display (or display group) - wraps native _show
+export fn show(display) = _show(display)
+
+// =============================================================================
+// ANIMATION WRAPPERS
+// =============================================================================
+
+// vary() - animate by selecting from array based on domain index
+export fn vary(data: array<T, R>, domain: string) = {data = data, varies = domain}
+export fn vary(data: array<T, R>, varies: dict<num>) = {data = data, varies = varies}
+
+// reveal() - progressively reveal elements based on domain index
+export fn reveal(data: array<T, R>, domain: string) = {data = data, reveals = domain}
+export fn reveal(data: array<T, R>, reveals: dict<num>) = {data = data, reveals = reveals}
