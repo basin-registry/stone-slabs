@@ -1,0 +1,263 @@
+// draw2d/transform.stn - Functional transforms for 2D shapes
+// All transforms return(new shapes (immutable))
+
+import add, sub, mul, rotate as rotate_vec from vec/vec2
+
+DEG = 3.14159265358979323846 / 180
+
+fn translate_cmd(cmd, offset) {
+    // TODO: path command point translation can be expanded command-by-command.
+    return({cmd = cmd.cmd, points = cmd.points})
+}
+
+fn translate_circle(c, offset) =
+    {type = c.type, center = add(c.center, offset), radius = c.radius, style = c.style}
+
+fn translate_rect(r, offset) =
+    {type = r.type, center = add(r.center, offset), width = r.width, height = r.height, rotation = r.rotation, style = r.style}
+
+fn translate_ellipse(e, offset) =
+    {type = e.type, center = add(e.center, offset), rx = e.rx, ry = e.ry, rotation = e.rotation, style = e.style}
+
+fn translate_line(l, offset) =
+    {type = l.type, start = add(l.start, offset), end = add(l.end, offset), style = l.style}
+
+fn translate_arc(a, offset) =
+    {type = a.type, center = add(a.center, offset), radius = a.radius, start_angle = a.start_angle, end_angle = a.end_angle, clockwise = a.clockwise, style = a.style}
+
+fn translate_polygon(p, offset) {
+    n = len(p.points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, add(p.points[i], offset))
+        i' = i + 1
+    }
+    return({type = p.type, points = state.pts, closed = p.closed, style = p.style})
+}
+
+fn translate_path(path, offset) {
+    n = len(path.commands)
+    state = evolve {cmds = [], i = 0} while (i < n) {
+        cmds' = push(cmds, translate_cmd(path.commands[i], offset))
+        i' = i + 1
+    }
+    return({type = path.type, commands = state.cmds, closed = path.closed, style = path.style})
+}
+
+fn translate_text(t, offset) =
+    {type = t.type, position = add(t.position, offset), text = t.text, font_size = t.font_size, font_family = t.font_family,
+     anchor = t.anchor, baseline = t.baseline, rotation = t.rotation, style = t.style}
+
+fn translate_group(g, offset) =
+    {type = g.type, objects = g.objects, style = g.style,
+     position = add(g.position, offset), rotation = g.rotation, scale = g.scale, anchor = g.anchor}
+
+export fn translate(shape, offset) {
+    t = shape.type
+    if (t == "circle") { return(translate_circle(shape, offset)) }
+    if (t == "rect") { return(translate_rect(shape, offset)) }
+    if (t == "ellipse") { return(translate_ellipse(shape, offset)) }
+    if (t == "line") { return(translate_line(shape, offset)) }
+    if (t == "arc") { return(translate_arc(shape, offset)) }
+    if (t == "polygon") { return(translate_polygon(shape, offset)) }
+    if (t == "path") { return(translate_path(shape, offset)) }
+    if (t == "text") { return(translate_text(shape, offset)) }
+    if (t == "group") { return(translate_group(shape, offset)) }
+    return(shape)
+}
+
+fn rotate_circle(c, angle: num, pivot) {
+    offset = sub(c.center, pivot)
+    return({type = c.type, center = add(pivot, rotate_vec(offset, angle * DEG)), radius = c.radius, style = c.style})
+}
+
+fn rotate_rect(r, angle: num, pivot) {
+    offset = sub(r.center, pivot)
+    return({type = r.type, center = add(pivot, rotate_vec(offset, angle * DEG)), width = r.width, height = r.height,
+            rotation = r.rotation + angle, style = r.style})
+}
+
+fn rotate_ellipse(e, angle: num, pivot) {
+    offset = sub(e.center, pivot)
+    return({type = e.type, center = add(pivot, rotate_vec(offset, angle * DEG)), rx = e.rx, ry = e.ry,
+            rotation = e.rotation + angle, style = e.style})
+}
+
+fn rotate_line(l, angle: num, pivot) {
+    return({type = l.type,
+            start = add(pivot, rotate_vec(sub(l.start, pivot), angle * DEG)),
+            end = add(pivot, rotate_vec(sub(l.end, pivot), angle * DEG)),
+            style = l.style})
+}
+
+fn rotate_arc(a, angle: num, pivot) {
+    offset = sub(a.center, pivot)
+    return({type = a.type,
+            center = add(pivot, rotate_vec(offset, angle * DEG)),
+            radius = a.radius,
+            start_angle = a.start_angle + angle,
+            end_angle = a.end_angle + angle,
+            clockwise = a.clockwise,
+            style = a.style})
+}
+
+fn rotate_polygon(p, angle: num, pivot) {
+    n = len(p.points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, add(pivot, rotate_vec(sub(p.points[i], pivot), angle * DEG)))
+        i' = i + 1
+    }
+    return({type = p.type, points = state.pts, closed = p.closed, style = p.style})
+}
+
+fn rotate_text(t, angle: num, pivot) {
+    offset = sub(t.position, pivot)
+    return({type = t.type,
+            position = add(pivot, rotate_vec(offset, angle * DEG)),
+            text = t.text,
+            font_size = t.font_size,
+            font_family = t.font_family,
+            anchor = t.anchor,
+            baseline = t.baseline,
+            rotation = t.rotation + angle,
+            style = t.style})
+}
+
+fn rotate_group(g, angle: num, pivot) {
+    offset = sub(g.position, pivot)
+    return({type = g.type, objects = g.objects, style = g.style,
+            position = add(pivot, rotate_vec(offset, angle * DEG)),
+            rotation = g.rotation + angle,
+            scale = g.scale,
+            anchor = g.anchor})
+}
+
+export fn rotate(shape, angle: num, pivot = [0, 0]) {
+    t = shape.type
+    if (t == "circle") { return(rotate_circle(shape, angle, pivot)) }
+    if (t == "rect") { return(rotate_rect(shape, angle, pivot)) }
+    if (t == "ellipse") { return(rotate_ellipse(shape, angle, pivot)) }
+    if (t == "line") { return(rotate_line(shape, angle, pivot)) }
+    if (t == "arc") { return(rotate_arc(shape, angle, pivot)) }
+    if (t == "polygon") { return(rotate_polygon(shape, angle, pivot)) }
+    if (t == "text") { return(rotate_text(shape, angle, pivot)) }
+    if (t == "group") { return(rotate_group(shape, angle, pivot)) }
+    return(shape)
+}
+
+fn scale_circle(c, factor: num, pivot) {
+    offset = sub(c.center, pivot)
+    return({type = c.type, center = add(pivot, mul(offset, factor)), radius = c.radius * factor, style = c.style})
+}
+
+fn scale_rect(r, factor: num, pivot) {
+    offset = sub(r.center, pivot)
+    return({type = r.type, center = add(pivot, mul(offset, factor)), width = r.width * factor, height = r.height * factor,
+            rotation = r.rotation, style = r.style})
+}
+
+fn scale_ellipse(e, factor: num, pivot) {
+    offset = sub(e.center, pivot)
+    return({type = e.type, center = add(pivot, mul(offset, factor)), rx = e.rx * factor, ry = e.ry * factor,
+            rotation = e.rotation, style = e.style})
+}
+
+fn scale_line(l, factor: num, pivot) =
+    {type = l.type,
+     start = add(pivot, mul(sub(l.start, pivot), factor)),
+     end = add(pivot, mul(sub(l.end, pivot), factor)),
+     style = l.style}
+
+fn scale_arc(a, factor: num, pivot) {
+    offset = sub(a.center, pivot)
+    return({type = a.type,
+            center = add(pivot, mul(offset, factor)),
+            radius = a.radius * factor,
+            start_angle = a.start_angle,
+            end_angle = a.end_angle,
+            clockwise = a.clockwise,
+            style = a.style})
+}
+
+fn scale_polygon(p, factor: num, pivot) {
+    n = len(p.points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, add(pivot, mul(sub(p.points[i], pivot), factor)))
+        i' = i + 1
+    }
+    return({type = p.type, points = state.pts, closed = p.closed, style = p.style})
+}
+
+fn scale_text(t, factor: num, pivot) {
+    offset = sub(t.position, pivot)
+    return({type = t.type,
+            position = add(pivot, mul(offset, factor)),
+            text = t.text,
+            font_size = t.font_size * factor,
+            font_family = t.font_family,
+            anchor = t.anchor,
+            baseline = t.baseline,
+            rotation = t.rotation,
+            style = t.style})
+}
+
+fn scale_group(g, factor: num, pivot) {
+    offset = sub(g.position, pivot)
+    return({type = g.type, objects = g.objects, style = g.style,
+            position = add(pivot, mul(offset, factor)),
+            rotation = g.rotation,
+            scale = g.scale * factor,
+            anchor = g.anchor})
+}
+
+export fn scale(shape, factor: num, pivot = [0, 0]) {
+    t = shape.type
+    if (t == "circle") { return(scale_circle(shape, factor, pivot)) }
+    if (t == "rect") { return(scale_rect(shape, factor, pivot)) }
+    if (t == "ellipse") { return(scale_ellipse(shape, factor, pivot)) }
+    if (t == "line") { return(scale_line(shape, factor, pivot)) }
+    if (t == "arc") { return(scale_arc(shape, factor, pivot)) }
+    if (t == "polygon") { return(scale_polygon(shape, factor, pivot)) }
+    if (t == "text") { return(scale_text(shape, factor, pivot)) }
+    if (t == "group") { return(scale_group(shape, factor, pivot)) }
+    return(shape)
+}
+
+fn mirror_x_point(p, x: num) = [2 * x - p[0], p[1]]
+fn mirror_y_point(p, y: num) = [p[0], 2 * y - p[1]]
+
+fn mirror_x_shape(shape, x: num) {
+    t = shape.type
+    if (t == "circle") { return({type = shape.type, center = mirror_x_point(shape.center, x), radius = shape.radius, style = shape.style}) }
+    if (t == "rect") { return({type = shape.type, center = mirror_x_point(shape.center, x), width = shape.width, height = shape.height, rotation = -shape.rotation, style = shape.style}) }
+    if (t == "line") { return({type = shape.type, start = mirror_x_point(shape.start, x), end = mirror_x_point(shape.end, x), style = shape.style}) }
+    if (t == "polygon") {
+        n = len(shape.points)
+        state = evolve {pts = [], i = 0} while (i < n) {
+            pts' = push(pts, mirror_x_point(shape.points[i], x))
+            i' = i + 1
+        }
+        return({type = shape.type, points = state.pts, closed = shape.closed, style = shape.style})
+    }
+    if (t == "group") { return({type = shape.type, objects = shape.objects, style = shape.style, position = mirror_x_point(shape.position, x), rotation = -shape.rotation, scale = shape.scale, anchor = shape.anchor}) }
+    return(shape)
+}
+
+fn mirror_y_shape(shape, y: num) {
+    t = shape.type
+    if (t == "circle") { return({type = shape.type, center = mirror_y_point(shape.center, y), radius = shape.radius, style = shape.style}) }
+    if (t == "rect") { return({type = shape.type, center = mirror_y_point(shape.center, y), width = shape.width, height = shape.height, rotation = -shape.rotation, style = shape.style}) }
+    if (t == "line") { return({type = shape.type, start = mirror_y_point(shape.start, y), end = mirror_y_point(shape.end, y), style = shape.style}) }
+    if (t == "polygon") {
+        n = len(shape.points)
+        state = evolve {pts = [], i = 0} while (i < n) {
+            pts' = push(pts, mirror_y_point(shape.points[i], y))
+            i' = i + 1
+        }
+        return({type = shape.type, points = state.pts, closed = shape.closed, style = shape.style})
+    }
+    if (t == "group") { return({type = shape.type, objects = shape.objects, style = shape.style, position = mirror_y_point(shape.position, y), rotation = -shape.rotation, scale = shape.scale, anchor = shape.anchor}) }
+    return(shape)
+}
+
+export fn mirror_x(shape, x: num = 0) = mirror_x_shape(shape, x)
+export fn mirror_y(shape, y: num = 0) = mirror_y_shape(shape, y)

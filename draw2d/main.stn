@@ -1,0 +1,41 @@
+// draw2d.stn - 2D Drawing Primitives (Barrel Module)
+// Unified 2D geometry library for Stone
+//
+// Coordinate system: Y-up (math convention)
+//   X = right, Y = up
+//   Origin at bottom-left by default (configurable via canvas2d origin field)
+//   Coordinates as arrays: [x, y]
+//
+// Usage:
+//   import draw2d                          // Namespace import
+//   import circle, rect, translate from draw2d  // Flat import
+//
+// Modules:
+//   draw2d/types     - Shape type definitions
+//   draw2d/transform - Functional transforms
+//   draw2d/ops       - Constructors and operations
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+export Style2D, Circle, Rect, Ellipse, Line, Arc, Polygon, Path, PathCmd, Text, Group2D, Shape2D from draw2d/types
+export vary, reveal from display
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+export circle, rect, ellipse, line, arc, polygon, polyline, text, group from draw2d/ops
+export path, move_to, line_to, quad_to, cubic_to, arc_to, close_path from draw2d/ops
+
+// =============================================================================
+// TRANSFORMS
+// =============================================================================
+
+export translate, rotate, scale, mirror_x, mirror_y from draw2d/transform
+
+// =============================================================================
+// OPERATIONS
+// =============================================================================
+
+export bounds, area, perimeter, contains, center from draw2d/ops

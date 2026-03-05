@@ -1,0 +1,8 @@
+name = "draw2d"
+version = "0.1.0"
+entry = "main.stn"
+description = "2D drawing: shapes, transforms, bounds, area, perimeter, containment"
+
+deps = {
+    vec = "0.1.0"
+}

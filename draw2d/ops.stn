@@ -1,0 +1,270 @@
+// draw2d/ops.stn - Constructors and operations for 2D shapes
+// Convenience functions for creating and querying shapes
+
+import min_vec, max_vec, dist from vec/vec2
+import sqrt, sin, cos, abs from primitives
+import Circle, Rect, Ellipse, Line, Arc, Polygon, Text, Group2D from draw2d/types
+
+PI = 3.14159265358979323846
+
+// =============================================================================
+// CONSTRUCTORS - Single-record API for shape creation
+// =============================================================================
+
+export fn circle(p: Circle) = p
+
+export fn rect(p: Rect) = p
+
+export fn ellipse(p: Ellipse) = p
+
+export fn line(p: Line) = p
+
+export fn arc(p: Arc) = p
+
+export fn polygon(p: Polygon) = p
+
+export fn polyline(p: Polygon) = {type = p.type, points = p.points, closed = false, style = p.style}
+
+export fn text(p: Text) = p
+
+export fn group(p: Group2D) = p
+
+// =============================================================================
+// PATH BUILDERS
+// =============================================================================
+
+export fn move_to(x: num, y: num) =
+    {cmd = "M", points = [x, y]}
+
+export fn line_to(x: num, y: num) =
+    {cmd = "L", points = [x, y]}
+
+export fn quad_to(cx: num, cy: num, x: num, y: num) =
+    {cmd = "Q", points = [cx, cy, x, y]}
+
+export fn cubic_to(c1x: num, c1y: num, c2x: num, c2y: num, x: num, y: num) =
+    {cmd = "C", points = [c1x, c1y, c2x, c2y, x, y]}
+
+export fn arc_to(rx: num, ry: num, rotation: num, large_arc: num, sweep: num, x: num, y: num) =
+    {cmd = "A", points = [rx, ry, rotation, large_arc, sweep, x, y]}
+
+export fn close_path() =
+    {cmd = "Z", points = []}
+
+export fn path(commands) =
+    {type = "path", commands = commands, closed = false, style = {}}
+
+// =============================================================================
+// BOUNDS
+// =============================================================================
+
+fn bounds_circle(c) {
+    r = c.radius
+    return({min = [c.center[0] - r, c.center[1] - r], max = [c.center[0] + r, c.center[1] + r]})
+}
+
+fn bounds_rect(r) {
+    hw = r.width / 2
+    hh = r.height / 2
+    cos_r = cos(r.rotation)
+    sin_r = sin(r.rotation)
+    ex = abs(hw * cos_r) + abs(hh * sin_r)
+    ey = abs(hw * sin_r) + abs(hh * cos_r)
+    return({min = [r.center[0] - ex, r.center[1] - ey], max = [r.center[0] + ex, r.center[1] + ey]})
+}
+
+fn bounds_ellipse(e) {
+    cos_r = cos(e.rotation)
+    sin_r = sin(e.rotation)
+    ex = sqrt(e.rx * e.rx * cos_r * cos_r + e.ry * e.ry * sin_r * sin_r)
+    ey = sqrt(e.rx * e.rx * sin_r * sin_r + e.ry * e.ry * cos_r * cos_r)
+    return({min = [e.center[0] - ex, e.center[1] - ey], max = [e.center[0] + ex, e.center[1] + ey]})
+}
+
+fn bounds_line(l) = {min = min_vec(l.start, l.end), max = max_vec(l.start, l.end)}
+
+fn bounds_arc(a) {
+    r = a.radius
+    return({min = [a.center[0] - r, a.center[1] - r], max = [a.center[0] + r, a.center[1] + r]})
+}
+
+fn bounds_polygon(p) {
+    if (len(p.points) == 0) {
+        return({min = [0, 0], max = [0, 0]})
+    }
+    first = p.points[0]
+    result = evolve {result_min = first, result_max = first} for (pt in p.points) {
+        result_min' = min_vec(result_min, pt)
+        result_max' = max_vec(result_max, pt)
+    }
+    return({min = result.result_min, max = result.result_max})
+}
+
+export fn bounds(shape) {
+    t = shape.type
+    if (t == "circle") { return(bounds_circle(shape)) }
+    if (t == "rect") { return(bounds_rect(shape)) }
+    if (t == "ellipse") { return(bounds_ellipse(shape)) }
+    if (t == "line") { return(bounds_line(shape)) }
+    if (t == "arc") { return(bounds_arc(shape)) }
+    if (t == "polygon") { return(bounds_polygon(shape)) }
+    if (t == "text") { return({min = shape.position, max = shape.position}) }
+    return({min = [0, 0], max = [0, 0]})
+}
+
+// =============================================================================
+// AREA
+// =============================================================================
+
+fn area_polygon(p) {
+    if (!p.closed) {
+        return(0)
+    }
+    n = len(p.points)
+    if (n < 3) {
+        return(0)
+    }
+    result = evolve {sum = 0} for (i in range(0, n)) {
+        j = (i + 1) % n
+        sum' = sum + p.points[i][0] * p.points[j][1] - p.points[j][0] * p.points[i][1]
+    }
+    return(abs(result.sum) / 2)
+}
+
+export fn area(shape) {
+    t = shape.type
+    if (t == "circle") { return(PI * shape.radius * shape.radius) }
+    if (t == "rect") { return(shape.width * shape.height) }
+    if (t == "ellipse") { return(PI * shape.rx * shape.ry) }
+    if (t == "line") { return(0) }
+    if (t == "arc") {
+        angle_span = abs(shape.end_angle - shape.start_angle)
+        return(0.5 * shape.radius * shape.radius * angle_span)
+    }
+    if (t == "polygon") { return(area_polygon(shape)) }
+    return(0)
+}
+
+// =============================================================================
+// PERIMETER
+// =============================================================================
+
+fn perimeter_polygon(p) {
+    n = len(p.points)
+    if (n < 2) {
+        return(0)
+    }
+    limit = if (p.closed) { n } else { n - 1 }
+    result = evolve {sum = 0} for (i in range(0, limit)) {
+        j = (i + 1) % n
+        sum' = sum + dist(p.points[i], p.points[j])
+    }
+    return(result.sum)
+}
+
+export fn perimeter(shape) {
+    t = shape.type
+    if (t == "circle") { return(2 * PI * shape.radius) }
+    if (t == "rect") { return(2 * (shape.width + shape.height)) }
+    if (t == "ellipse") {
+        a = shape.rx
+        b = shape.ry
+        h = ((a - b) * (a - b)) / ((a + b) * (a + b))
+        return(PI * (a + b) * (1 + 3 * h / (10 + sqrt(4 - 3 * h))))
+    }
+    if (t == "line") { return(dist(shape.start, shape.end)) }
+    if (t == "arc") {
+        angle_span = abs(shape.end_angle - shape.start_angle)
+        return(shape.radius * angle_span)
+    }
+    if (t == "polygon") { return(perimeter_polygon(shape)) }
+    return(0)
+}
+
+// =============================================================================
+// CONTAINS
+// =============================================================================
+
+fn contains_circle(c, pt) {
+    dx = pt[0] - c.center[0]
+    dy = pt[1] - c.center[1]
+    return(dx * dx + dy * dy <= c.radius * c.radius)
+}
+
+fn contains_rect(r, pt) {
+    dx = pt[0] - r.center[0]
+    dy = pt[1] - r.center[1]
+    cos_r = cos(-r.rotation)
+    sin_r = sin(-r.rotation)
+    local_x = dx * cos_r - dy * sin_r
+    local_y = dx * sin_r + dy * cos_r
+    return(abs(local_x) <= r.width / 2 && abs(local_y) <= r.height / 2)
+}
+
+fn contains_ellipse(e, pt) {
+    dx = pt[0] - e.center[0]
+    dy = pt[1] - e.center[1]
+    cos_r = cos(-e.rotation)
+    sin_r = sin(-e.rotation)
+    local_x = dx * cos_r - dy * sin_r
+    local_y = dx * sin_r + dy * cos_r
+    return((local_x * local_x) / (e.rx * e.rx) + (local_y * local_y) / (e.ry * e.ry) <= 1)
+}
+
+fn contains_polygon(p, pt) {
+    if (!p.closed) {
+        return(false)
+    }
+    n = len(p.points)
+    result = evolve {inside = false, j = n - 1} for (i in range(0, n)) {
+        yi = p.points[i][1]
+        yj = p.points[j][1]
+        xi = p.points[i][0]
+        xj = p.points[j][0]
+        crosses = (yi > pt[1]) != (yj > pt[1])
+        left_of_edge = pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi
+        inside' = if (crosses && left_of_edge) { !inside } else { inside }
+        j' = i
+    }
+    return(result.inside)
+}
+
+export fn contains(shape, pt) {
+    t = shape.type
+    if (t == "circle") { return(contains_circle(shape, pt)) }
+    if (t == "rect") { return(contains_rect(shape, pt)) }
+    if (t == "ellipse") { return(contains_ellipse(shape, pt)) }
+    if (t == "polygon") { return(contains_polygon(shape, pt)) }
+    return(false)
+}
+
+// =============================================================================
+// CENTER
+// =============================================================================
+
+fn center_line(l) = [(l.start[0] + l.end[0]) / 2, (l.start[1] + l.end[1]) / 2]
+
+fn center_polygon(p) {
+    n = len(p.points)
+    if (n == 0) {
+        return([0, 0])
+    }
+    result = evolve {sum_x = 0, sum_y = 0} for (pt in p.points) {
+        sum_x' = sum_x + pt[0]
+        sum_y' = sum_y + pt[1]
+    }
+    return([result.sum_x / n, result.sum_y / n])
+}
+
+export fn center(shape) {
+    t = shape.type
+    if (t == "circle" || t == "rect" || t == "ellipse" || t == "arc") { return(shape.center) }
+    if (t == "text") { return(shape.position) }
+    if (t == "line") { return(center_line(shape)) }
+    if (t == "polygon") { return(center_polygon(shape)) }
+    if (t == "group") {
+        b = bounds(shape)
+        return([(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2])
+    }
+    return([0, 0])
+}

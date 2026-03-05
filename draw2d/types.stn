@@ -1,0 +1,147 @@
+// draw2d/types.stn - 2D Shape Primitives
+// Geometry + optional style (empty style = use terminal default)
+//
+// Coordinate system: Y-up (math convention)
+//   X = right, Y = up
+//   Origin at bottom-left by default
+//   Coordinates as arrays: [x, y]
+//
+// Usage:
+//   import Circle, Rect, Line, Style2D from draw2d/types
+//   import Shape2D, Group2D from draw2d/types
+
+import AnimateWrapper, RevealWrapper from display
+
+// =============================================================================
+// COORDINATE TYPES
+// =============================================================================
+
+export Bounds2 = {min = [0, 0], max = [0, 0]}
+
+// =============================================================================
+// STYLE
+// =============================================================================
+
+// Style for 2D shapes (optional on shapes, "none" = no fill/stroke)
+export Style2D = {
+    fill = "none",              // "none" = no fill, color string otherwise
+    fill_opacity = 1,
+    stroke = "foreground",            // "none" = no stroke, color string otherwise
+    stroke_width = 1,
+    stroke_opacity = 1,
+    stroke_dash: array<num, 1> = [],    // [] = solid line
+    stroke_cap = "butt",        // "butt", "round", "square"
+    stroke_join = "miter"       // "miter", "round", "bevel"
+}
+
+// =============================================================================
+// SHAPE TYPES
+// =============================================================================
+
+// Circle - defined by center and radius
+export Circle = {
+    type = "circle",
+    center: array<num, R> | AnimateWrapper = [0, 0],
+    radius: num | AnimateWrapper = 1,
+    style: Style2D = {}
+}
+
+// Rectangle - defined by center, dimensions, and rotation
+export Rect = {
+    type = "rect",
+    center: array<num, R> | AnimateWrapper = [0, 0],
+    width: num | AnimateWrapper = 1,
+    height: num | AnimateWrapper = 1,
+    rotation: num | AnimateWrapper = 0,      // Degrees
+    style: Style2D = {}
+}
+
+// Ellipse - defined by center, radii, and rotation
+export Ellipse = {
+    type = "ellipse",
+    center: array<num, R> | AnimateWrapper = [0, 0],
+    rx: num | AnimateWrapper = 1,            // Radius X
+    ry: num | AnimateWrapper = 1,            // Radius Y
+    rotation: num | AnimateWrapper = 0,      // Degrees
+    style: Style2D = {}
+}
+
+// Line segment - defined by start and end points
+export Line = {
+    type = "line",
+    start: array<num, R> | AnimateWrapper = [0, 0],
+    end: array<num, R> | AnimateWrapper = [1, 0],
+    style: Style2D = {}
+}
+
+// Circular arc - defined by center, radius, and angles
+export Arc = {
+    type = "arc",
+    center: array<num, R> | AnimateWrapper = [0, 0],
+    radius: num | AnimateWrapper = 1,
+    start_angle: num | AnimateWrapper = 0,       // Degrees
+    end_angle: num | AnimateWrapper = 180,       // Degrees
+    clockwise = false,
+    style: Style2D = {}
+}
+
+// Polygon/Polyline - defined by array of points
+export Polygon = {
+    type = "polygon",
+    points: array<num, 2> | AnimateWrapper | RevealWrapper,  // No default - required field
+    closed = true,        // true = polygon, false = polyline
+    style: Style2D = {}
+}
+
+// =============================================================================
+// PATH (SVG-like)
+// =============================================================================
+
+// Path command - single SVG-like path operation
+export PathCmd = {
+    cmd = "M",          // "M", "L", "A", "Q", "C", "Z"
+    points: array<num, 1> = []  // Flattened point/param data
+}
+
+// Path - sequence of commands
+export Path = {
+    type = "path",
+    commands: array<PathCmd, 1> = [],
+    closed = false,
+    style: Style2D = {}
+}
+
+// =============================================================================
+// TEXT
+// =============================================================================
+
+// Text element
+export Text = {
+    type = "text",
+    position: array<num, R> | AnimateWrapper = [0, 0],
+    text = "",
+    font_size: num | AnimateWrapper = 14,
+    font_family = "sans-serif",
+    anchor = "start",   // "start", "middle", "end"
+    baseline = "alphabetic",    // "top", "middle", "alphabetic", "bottom"
+    rotation: num | AnimateWrapper = 0,       // Degrees
+    style: Style2D = {}
+}
+
+// =============================================================================
+// GROUP & UNION TYPE
+// =============================================================================
+
+// Group - container for multiple shapes with render-time transform
+export Group2D = {
+    type = "group",
+    objects: array<Shape2D, 1> | RevealWrapper | AnimateWrapper = [],
+    style: Style2D = {},    // Default style for child objects
+    position: array<num, R> | AnimateWrapper = [0, 0], // Accumulated translation offset
+    rotation: num | AnimateWrapper = 0,           // Accumulated rotation (degrees)
+    scale: num | AnimateWrapper = 1,              // Accumulated uniform scale factor
+    anchor: array<num, 1> = [0, 0] // Pivot point for rotation/scale
+}
+
+// Union of all 2D shape types
+export Shape2D = Circle | Rect | Ellipse | Line | Arc | Polygon | Path | Text | Group2D
