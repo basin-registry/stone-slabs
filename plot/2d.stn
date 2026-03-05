@@ -1,0 +1,192 @@
+// plot/2d.stn - 2D Plot Constructors
+// Provides typed constructor functions for 2D plots
+//
+// Usage: import line, scatter, bar from plot/2d
+
+import DomainConfig, AnimateWrapper, RevealWrapper from display
+export vary, reveal from display
+
+export AnimAny = AnimateWrapper | RevealWrapper
+
+// =============================================================================
+// GRAPH CONFIG SCHEMAS
+// =============================================================================
+
+// Configuration schema for 2D graphs
+export Graph2DConfig = {
+    title: string = "",
+    background: string = "",
+    x_label: string = "",
+    y_label: string = "",
+    x_min: num = 0,
+    x_max: num = 0,
+    y_min: num = 0,
+    y_max: num = 0,
+    domains: dict<DomainConfig> = {}
+}
+
+// =============================================================================
+// STYLE SCHEMAS
+// =============================================================================
+
+// Style schema for line plots
+export LineStyle = {
+    color: string | AnimAny = "",
+    line_width: num | AnimAny = 2,
+    line_style: string | AnimAny = "solid",
+    dash: array<num, 1> | AnimAny = [],
+    opacity: num | AnimAny = 1.0,
+    markers: bool | AnimAny = false,
+    marker_size: num | AnimAny = 5,
+    label: string | AnimAny = ""
+}
+
+// Style schema for scatter plots
+export ScatterStyle = {
+    color: string | AnimAny = "",
+    marker_size: num | AnimAny = 8,
+    marker: string | AnimAny = "circle",
+    opacity: num | AnimAny = 1.0,
+    label: string | AnimAny = ""
+}
+
+// Style schema for bar charts
+export BarStyle = {
+    color: string | AnimAny = "",
+    bar_width: num | AnimAny = 0.8,
+    opacity: num | AnimAny = 1.0,
+    orientation: string | AnimAny = "v",
+    label: string | AnimAny = ""
+}
+
+// Style schema for area plots
+export AreaStyle = {
+    color: string | AnimAny = "",
+    fill_color: string | AnimAny = "",
+    opacity: num | AnimAny = 0.5,
+    line_width: num | AnimAny = 2,
+    label: string | AnimAny = ""
+}
+
+// Style schema for heatmaps
+export HeatmapStyle = {
+    color_scale: string | AnimAny = "hot",
+    show_values: bool | AnimAny = false,
+    zmin: num | AnimAny = 0,
+    zmax: num | AnimAny = 0,
+    label: string | AnimAny = ""
+}
+
+// Style schema for contour plots
+export ContourStyle = {
+    color_scale: string | AnimAny = "jet",
+    ncontours: num | AnimAny = 20,
+    show_labels: bool | AnimAny = true,
+    label: string | AnimAny = ""
+}
+
+// =============================================================================
+// DATA SCHEMAS
+// =============================================================================
+
+// Data schema for line plots (supports both 2D and 3D - auto-detects based on z)
+export LineData = {
+    type: string = "line",
+    x: array<num, R> | AnimAny = [],
+    y: array<num, R> | AnimAny = [],
+    z: array<num, R> | AnimAny = [],
+    points: array<num, 2> | AnimAny = [],
+    style: LineStyle | AnimAny = {}
+}
+
+// Data schema for scatter plots (supports both 2D and 3D - auto-detects based on z)
+export ScatterData = {
+    type: string = "scatter",
+    x: array<num, R> | AnimAny = [],
+    y: array<num, R> | AnimAny = [],
+    z: array<num, R> | AnimAny = [],
+    points: array<num, 2> | AnimAny = [],
+    style: ScatterStyle | AnimAny = {}
+}
+
+// Data schema for bar charts
+export BarData = {
+    type: string = "bar",
+    labels: array<string, 1> | AnimAny = [],
+    values: array<num, 1> | AnimAny = [],
+    style: BarStyle | AnimAny = {}
+}
+
+// Data schema for area plots
+export AreaData = {
+    type: string = "area",
+    x: array<num, R> | AnimAny = [],
+    y: array<num, R> | AnimAny = [],
+    points: array<num, 2> | AnimAny = [],
+    style: AreaStyle | AnimAny = {}
+}
+
+// Data schema for heatmaps
+export HeatmapData = {
+    type: string = "heatmap",
+    z: array<num, R> | AnimAny,
+    x: array<num, 1> | AnimAny = [],
+    y: array<num, 1> | AnimAny = [],
+    style: HeatmapStyle | AnimAny = {}
+}
+
+// Data schema for contour plots
+export ContourData = {
+    type: string = "contour",
+    z: array<num, R> | AnimAny,
+    x: array<num, 1> | AnimAny = [],
+    y: array<num, 1> | AnimAny = [],
+    style: ContourStyle | AnimAny = {}
+}
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+export fn line(data: LineData) =
+    {type = "line",
+     x = data.x,
+     y = data.y,
+     z = data.z,
+     points = data.points,
+     style = data.style}
+
+export fn scatter(data: ScatterData) =
+    {type = "scatter",
+     x = data.x,
+     y = data.y,
+     z = data.z,
+     points = data.points,
+     style = data.style}
+
+export fn bar(data: BarData) =
+    {type = "bar",
+     labels = data.labels,
+     values = data.values,
+     style = data.style}
+
+export fn area(data: AreaData) =
+    {type = "area",
+     x = data.x,
+     y = data.y,
+     points = data.points,
+     style = data.style}
+
+export fn heatmap(data: HeatmapData) =
+    {type = "heatmap",
+     z = data.z,
+     x = data.x,
+     y = data.y,
+     style = data.style}
+
+export fn contour(data: ContourData) =
+    {type = "contour",
+     z = data.z,
+     x = data.x,
+     y = data.y,
+     style = data.style}

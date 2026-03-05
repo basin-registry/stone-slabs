@@ -1,0 +1,44 @@
+// plot — Data Visualization Library
+// Typed constructors for 2D and 3D plots.
+//
+// Usage:
+//   import line, scatter, bar from plot
+//   import surface, text, axes from plot
+//   import line, scatter from plot/2d
+//   import surface, sphere from plot/3d
+
+// =============================================================================
+// DISPLAY CONSTRUCTORS (data viz only - re-exported from display)
+// =============================================================================
+
+export graph2d, graph3d, show from display
+
+import Graph2DConfig from plot/2d
+import Graph3DConfig from plot/3d
+
+// =============================================================================
+// SHARED ANIMATION CONFIG
+// =============================================================================
+
+export DomainConfig, PlaybackConfig from display
+export vary, reveal from display
+
+// =============================================================================
+// TYPED PLOT CONSTRUCTORS
+// =============================================================================
+
+// 2D plot types
+export Graph2DConfig,
+       LineStyle, ScatterStyle, BarStyle, AreaStyle, HeatmapStyle, ContourStyle,
+       LineData, ScatterData, BarData, AreaData, HeatmapData, ContourData,
+       line, scatter, bar, area, heatmap, contour from plot/2d
+
+// 3D plot types (surface, text, axes)
+export Graph3DConfig,
+       SurfaceStyle, TextStyle,
+       SurfaceData, TextData, AxesData,
+       surface, text, axes from plot/3d
+
+// 3D shapes (re-exported via plot/3d from draw3d)
+export Box, Sphere, Cylinder, Cone, Torus, Mesh, Material3D,
+       box, sphere, cylinder, cone, torus, mesh from plot/3d
