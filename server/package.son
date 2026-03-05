@@ -1,0 +1,4 @@
+name = "server"
+version = "0.1.0"
+entry = "main.stn"
+description = "HTTP server for Stone applications (LLVM/native builds only)"

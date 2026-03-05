@@ -1,0 +1,19 @@
+// server - HTTP Server Module (LLVM/native builds only)
+//
+// Provides HTTP server functionality for Stone applications.
+//
+// Usage:
+//   import server
+//
+//   s = server.serve(3000)
+//   print("Listening on port 3000")
+//
+//   while (true) {
+//       req = server.await_request(s)
+//       server.send_response(req, {status = 200, body = "Hello!"})
+//   }
+
+export serve from primitives
+export await_request from primitives
+export send_response from primitives
+export stop_server from primitives
