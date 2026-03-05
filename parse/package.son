@@ -1,0 +1,4 @@
+name = "parse"
+version = "0.1.0"
+entry = "main.stn"
+description = "JSON and CSV parsing with schema validation"
