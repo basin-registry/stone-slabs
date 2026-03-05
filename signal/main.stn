@@ -1,0 +1,402 @@
+// signal.stn - Signal Processing Standard Library
+// Provides digital filters, windowing, resampling, envelope, and event detection
+//
+// Submodules:
+//   signal/events - Zero crossing, edge detection, triggers, peak detection
+//
+// Usage: import hamming, filter from signal
+//        import zero_crossing, rising_edge from signal
+
+import PI, sin, cos, sqrt from math
+import fft, ifft from dynamics/fft
+import zeros from linalg
+import complex as _complex from complex
+
+// =============================================================================
+// WINDOWING FUNCTIONS
+// =============================================================================
+
+// hamming(n) - Hamming window of length n
+// w[k] = 0.54 - 0.46 * cos(2*pi*k/(n-1))
+export fn hamming(n) {
+    result = evolve { w = [], k = 0 } while (k < n) {
+        wk = 0.54 - 0.46 * cos(2 * PI * k / (n - 1))
+        w' = push(w, wk)
+        k' = k + 1
+    }
+    return(result.w)
+}
+
+// hanning(n) - Hanning (Hann) window of length n
+// w[k] = 0.5 * (1 - cos(2*pi*k/(n-1)))
+export fn hanning(n) {
+    result = evolve { w = [], k = 0 } while (k < n) {
+        wk = 0.5 * (1 - cos(2 * PI * k / (n - 1)))
+        w' = push(w, wk)
+        k' = k + 1
+    }
+    return(result.w)
+}
+
+// blackman(n) - Blackman window of length n
+// w[k] = 0.42 - 0.5*cos(2*pi*k/(n-1)) + 0.08*cos(4*pi*k/(n-1))
+export fn blackman(n) {
+    result = evolve { w = [], k = 0 } while (k < n) {
+        wk = 0.42 - 0.5 * cos(2 * PI * k / (n - 1)) + 0.08 * cos(4 * PI * k / (n - 1))
+        w' = push(w, wk)
+        k' = k + 1
+    }
+    return(result.w)
+}
+
+// bartlett(n) - Bartlett (triangular) window of length n
+export fn bartlett(n) {
+    result = evolve { w = [], k = 0 } while (k < n) {
+        half = (n - 1) / 2
+        wk = if (k <= half) {
+            return(2 * k / (n - 1))
+        } else {
+            return(2 - 2 * k / (n - 1))
+        }
+        w' = push(w, wk)
+        k' = k + 1
+    }
+    return(result.w)
+}
+
+// rectangular(n) - Rectangular window (all ones)
+export fn rectangular(n) {
+    result = evolve { w = [], k = 0 } while (k < n) {
+        w' = push(w, 1)
+        k' = k + 1
+    }
+    return(result.w)
+}
+
+// =============================================================================
+// DIGITAL FILTER - DIRECT FORM II TRANSPOSED
+// =============================================================================
+
+// filter(b, a, x) - Apply IIR/FIR filter to signal x
+// b: numerator coefficients (feedforward)
+// a: denominator coefficients (feedback), a[0] is assumed to be 1
+// x: input signal array
+// Returns filtered signal y
+export fn filter(b, a, x) {
+    nb = len(b)
+    na = len(a)
+    nx = len(x)
+
+    // Order of the filter
+    order = max(nb, na)
+
+    // Initialize state (delay line)
+    init_state = evolve { z = [], i = 0 } while (i < order) {
+        z' = push(z, 0)
+        i' = i + 1
+    }
+
+    // Process each sample
+    result = evolve { y = [], z = init_state.z, k = 0 } while (k < nx) {
+        xk = x[k]
+
+        // Output: y[k] = b[0]*x[k] + z[0]
+        yk = b[0] * xk + z[0]
+        y' = push(y, yk)
+
+        // Update state
+        new_z = evolve { new_z = [], i = 0 } while (i < order - 1) {
+            // z[i] = b[i+1]*x[k] - a[i+1]*y[k] + z[i+1]
+            bi1 = if (i + 1 < nb) { return(b[i + 1]) } else { return(0) }
+            ai1 = if (i + 1 < na) { return(a[i + 1]) } else { return(0) }
+            zi1 = if (i + 1 < order - 1) { return(z[i + 1]) } else { return(0) }
+            zi_new = bi1 * xk - ai1 * yk + zi1
+            new_z' = push(new_z, zi_new)
+            i' = i + 1
+        }
+
+        z' = new_z.new_z
+        k' = k + 1
+    }
+
+    return(result.y)
+}
+
+// =============================================================================
+// MOVING AVERAGE FILTERS
+// =============================================================================
+
+// moving_average(x, window_size) - Simple moving average filter
+export fn moving_average(x, window_size) {
+    n = len(x)
+
+    // Create FIR coefficients (all equal)
+    b = evolve { b = [], i = 0 } while (i < window_size) {
+        b' = push(b, 1 / window_size)
+        i' = i + 1
+    }
+
+    // a = [1] for FIR filter
+    a = [1]
+
+    return(filter(b.b, a, x))
+}
+
+// exponential_moving_average(x, alpha) - Exponential moving average
+// alpha: smoothing factor (0 < alpha <= 1)
+// Higher alpha = more weight to recent values
+export fn exponential_moving_average(x, alpha) {
+    n = len(x)
+
+    result = evolve { y = [], prev = x[0], i = 0 } while (i < n) {
+        ema = if (i == 0) {
+            return(x[0])
+        } else {
+            return(alpha * x[i] + (1 - alpha) * prev)
+        }
+        y' = push(y, ema)
+        prev' = ema
+        i' = i + 1
+    }
+
+    return(result.y)
+}
+
+// =============================================================================
+// RESAMPLING
+// =============================================================================
+
+// upsample(x, factor) - Upsample by inserting zeros
+// Inserts (factor-1) zeros between each sample
+export fn upsample(x, factor) {
+    n = len(x)
+    result = evolve { y = [], i = 0 } while (i < n) {
+        // Insert original sample then (factor-1) zeros
+        with_sample = push(y, x[i])
+        padded = evolve { yy = with_sample, j = 1 } while (j < factor) {
+            yy' = push(yy, 0)
+            j' = j + 1
+        }
+        y' = padded.yy
+        i' = i + 1
+    }
+    return(result.y)
+}
+
+// downsample(x, factor) - Downsample by keeping every nth sample
+export fn downsample(x, factor) {
+    n = len(x)
+    result = evolve { y = [], i = 0 } while (i < n) {
+        // Check if this is a sample to keep
+        keep = i - factor * floor(i / factor)
+        if (keep == 0) {
+            y' = push(y, x[i])
+        }
+        i' = i + 1
+    }
+    return(result.y)
+}
+
+// =============================================================================
+// SIGNAL ANALYSIS
+// =============================================================================
+
+// envelope_hilbert(x) - Signal envelope using Hilbert transform approximation
+// Returns magnitude envelope of analytic signal
+export fn envelope_hilbert(x) {
+    n = len(x)
+
+    // Compute FFT
+    X = fft(x)
+    nfft = len(X)
+
+    // Create analytic signal (zero negative frequencies, double positive)
+    // H[0] = X[0], H[1..n/2] = 2*X[1..n/2], H[n/2+1..n-1] = 0
+    half = floor(nfft / 2)
+
+    H = evolve { H = [], k = 0 } while (k < nfft) {
+        Hk = if (k == 0) {
+            return(X[k])
+        } else {
+            return(if (k <= half) {
+                // Multiply by 2 for positive frequencies
+                return(_complex(X[k].re * 2, X[k].im * 2))
+            } else {
+                // Zero for negative frequencies
+                return(_complex(0, 0))
+            })
+        }
+        H' = push(H, Hk)
+        k' = k + 1
+    }
+
+    // Inverse FFT to get analytic signal
+    analytic = ifft(H.H)
+
+    // Compute envelope (magnitude)
+    env = evolve { env = [], k = 0 } while (k < n) {
+        c = analytic[k]
+        mag = sqrt(c.re * c.re + c.im * c.im)
+        env' = push(env, mag)
+        k' = k + 1
+    }
+
+    return(env.env)
+}
+
+// rms_envelope(x, window_size) - RMS envelope with sliding window
+export fn rms_envelope(x, window_size) {
+    n = len(x)
+    half_win = floor(window_size / 2)
+
+    result = evolve { env = [], i = 0 } while (i < n) {
+        // Compute RMS over window centered at i
+        sum_sq = evolve { acc = 0, j = i - half_win } while (j <= i + half_win) {
+            // Handle boundary conditions
+            idx = max(0, min(j, n - 1))
+            acc' = acc + x[idx] * x[idx]
+            j' = j + 1
+        }
+        rms = sqrt(sum_sq.acc / window_size)
+        env' = push(env, rms)
+        i' = i + 1
+    }
+
+    return(result.env)
+}
+
+// =============================================================================
+// PHASE UNWRAPPING
+// =============================================================================
+
+// unwrap(phase) - Unwrap phase angles to remove discontinuities
+// Adds or subtracts 2*pi to minimize jumps
+export fn unwrap(phase) {
+    n = len(phase)
+
+    result = evolve { unwrapped = [], prev = 0, i = 0 } while (i < n) {
+        if (i == 0) {
+            unwrapped' = push(unwrapped, phase[0])
+            prev' = phase[0]
+        } else {
+            diff = phase[i] - phase[i - 1]
+            // Wrap diff to [-pi, pi]
+            wrapped_diff = diff - 2 * PI * round(diff / (2 * PI))
+            current = prev + wrapped_diff
+            unwrapped' = push(unwrapped, current)
+            prev' = current
+        }
+        i' = i + 1
+    }
+
+    return(result.unwrapped)
+}
+
+// =============================================================================
+// CONVOLUTION
+// =============================================================================
+
+// conv(a, b) - Discrete convolution of two signals
+// Output length is len(a) + len(b) - 1
+export fn conv(a, b) {
+    na = len(a)
+    nb = len(b)
+    nc = na + nb - 1
+
+    result = evolve { c = [], k = 0 } while (k < nc) {
+        // c[k] = sum_{j} a[j] * b[k-j]
+        sum_val = evolve { acc = 0, j = 0 } while (j < na) {
+            idx_b = k - j
+            if (idx_b >= 0) {
+                if (idx_b < nb) {
+                    acc' = acc + a[j] * b[idx_b]
+                }
+            }
+            j' = j + 1
+        }
+        c' = push(c, sum_val.acc)
+        k' = k + 1
+    }
+
+    return(result.c)
+}
+
+// xcorr(a, b) - Cross-correlation of two signals
+// Same as conv(a, flip(b))
+export fn xcorr(a, b) {
+    nb = len(b)
+
+    // Flip b
+    b_flipped = evolve { bf = [], i = 0 } while (i < nb) {
+        bf' = push(bf, b[nb - 1 - i])
+        i' = i + 1
+    }
+
+    return(conv(a, b_flipped.bf))
+}
+
+// autocorr(x) - Autocorrelation of signal with itself
+export fn autocorr(x) {
+    return(xcorr(x, x))
+}
+
+// =============================================================================
+// SIGNAL GENERATION
+// =============================================================================
+
+// sinusoid(n, freq, sample_rate, phase) - Generate sinusoidal signal
+// Returns array of n samples
+export fn sinusoid(n, freq, sample_rate, phase) {
+    result = evolve { s = [], k = 0 } while (k < n) {
+        t = k / sample_rate
+        sk = sin(2 * PI * freq * t + phase)
+        s' = push(s, sk)
+        k' = k + 1
+    }
+    return(result.s)
+}
+
+// chirp(n, f0, f1, sample_rate) - Generate linear chirp signal
+// Frequency sweeps from f0 to f1 over n samples
+export fn chirp(n, f0, f1, sample_rate) {
+    T = n / sample_rate
+    k_rate = (f1 - f0) / T
+
+    result = evolve { s = [], k = 0 } while (k < n) {
+        t = k / sample_rate
+        // Instantaneous frequency: f(t) = f0 + k_rate * t
+        // Phase: integral of 2*pi*f(t) = 2*pi*(f0*t + k_rate*t^2/2)
+        phase = 2 * PI * (f0 * t + k_rate * t * t / 2)
+        sk = sin(phase)
+        s' = push(s, sk)
+        k' = k + 1
+    }
+    return(result.s)
+}
+
+// white_noise(n) - Generate white noise (requires random module)
+// Note: Uses simple linear congruential generator for reproducibility
+export fn white_noise(n) {
+    result = evolve { s = [], seed = 12345, k = 0 } while (k < n) {
+        // Simple LCG: next = (a * seed + c) mod m
+        next_seed = (1103515245 * seed + 12345) - 2147483648 * floor((1103515245 * seed + 12345) / 2147483648)
+        // Normalize to [-1, 1]
+        noise = 2 * next_seed / 2147483648 - 1
+        s' = push(s, noise)
+        seed' = next_seed
+        k' = k + 1
+    }
+    return(result.s)
+}
+
+// =============================================================================
+// EVENT DETECTION (re-exported from signal/events)
+// =============================================================================
+
+export zero_crossing, zero_crossing_time from signal/events
+export rising_edge, falling_edge, any_edge from signal/events
+export detect_rising_edges, detect_falling_edges, count_edges from signal/events
+export sample_hold, sample_on_edge from signal/events
+export trigger_once, monostable from signal/events
+export find_peaks, find_valleys from signal/events
+export hysteresis_compare from signal/events

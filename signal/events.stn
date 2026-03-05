@@ -1,0 +1,282 @@
+// signal/events.stn - Event Detection
+// Provides zero crossing, edge detection, triggers, and peak detection
+//
+// Usage: import zero_crossing, rising_edge from signal
+//    or: import zero_crossing from signal/events
+
+import sign, ramp from optimize
+
+// =============================================================================
+// ZERO CROSSING DETECTION
+// =============================================================================
+
+// zero_crossing(x, x_prev) - Detect if a zero crossing occurred
+// Returns: { crossed, direction }
+//   crossed: true if sign change occurred
+//   direction: 1 for rising (neg->pos), -1 for falling (pos->neg), 0 for no crossing
+export fn zero_crossing(x, x_prev) {
+    sign_x = sign(x)
+    sign_prev = sign(x_prev)
+
+    // Check for sign change
+    if (sign_x != sign_prev) {
+        if (sign_prev != 0) {
+            // Crossed from non-zero to different sign
+            dir = if (sign_x > sign_prev) { return(1) } else { return(-1) }
+            return({ crossed = true, direction = dir })
+        }
+    }
+    return({ crossed = false, direction = 0 })
+}
+
+// zero_crossing_time(x, x_prev, t, dt) - Estimate time of zero crossing
+// Uses linear interpolation to estimate when zero occurred
+// Returns: { crossed, time, direction }
+export fn zero_crossing_time(x, x_prev, t, dt) {
+    zc = zero_crossing(x, x_prev)
+
+    if (zc.crossed) {
+        // Linear interpolation: t_cross = t - dt * x / (x - x_prev)
+        denom = x - x_prev
+        t_cross = if (abs(denom) > 1e-15) {
+            return(t - dt * x / denom)
+        } else {
+            return(t)
+        }
+        return({ crossed = true, time = t_cross, direction = zc.direction })
+    }
+    return({ crossed = false, time = t, direction = 0 })
+}
+
+// =============================================================================
+// EDGE DETECTION
+// =============================================================================
+
+// rising_edge(x, x_prev, threshold) - Detect rising edge crossing threshold
+// Returns true if x crossed threshold from below
+export fn rising_edge(x, x_prev, threshold) {
+    // Use difference-based check: prev below, current at or above
+    below_prev = threshold - x_prev
+    above_curr = x - threshold
+
+    // Rising edge: x_prev < threshold AND x >= threshold
+    result = if (below_prev > 0) {
+        return(if (above_curr >= 0) { return(true) } else { return(false) })
+    } else {
+        return(false)
+    }
+    return(result)
+}
+
+// falling_edge(x, x_prev, threshold) - Detect falling edge crossing threshold
+// Returns true if x crossed threshold from above
+export fn falling_edge(x, x_prev, threshold) {
+    // Use difference-based check: prev at or above, current below
+    above_prev = x_prev - threshold
+    below_curr = threshold - x
+
+    // Falling edge: x_prev >= threshold AND x < threshold
+    result = if (above_prev >= 0) {
+        return(if (below_curr > 0) { return(true) } else { return(false) })
+    } else {
+        return(false)
+    }
+    return(result)
+}
+
+// any_edge(x, x_prev, threshold) - Detect any edge crossing threshold
+// Returns: { edge, rising }
+export fn any_edge(x, x_prev, threshold) {
+    if (rising_edge(x, x_prev, threshold)) {
+        return({ edge = true, rising = true })
+    }
+    if (falling_edge(x, x_prev, threshold)) {
+        return({ edge = true, rising = false })
+    }
+    return({ edge = false, rising = false })
+}
+
+// =============================================================================
+// SIGNAL EDGE DETECTION (for discrete signals)
+// =============================================================================
+
+// detect_rising_edge(signal) - Find all rising edges in a signal array
+// Returns array of indices where rising edges occur
+export fn detect_rising_edges(signal, threshold) {
+    n = len(signal)
+    result = evolve { edges = [], i = 1 } while (i < n) {
+        if (rising_edge(signal[i], signal[i-1], threshold)) {
+            edges' = push(edges, i)
+        }
+        i' = i + 1
+    }
+    return(result.edges)
+}
+
+// detect_falling_edges(signal, threshold) - Find all falling edges in a signal array
+export fn detect_falling_edges(signal, threshold) {
+    n = len(signal)
+    result = evolve { edges = [], i = 1 } while (i < n) {
+        if (falling_edge(signal[i], signal[i-1], threshold)) {
+            edges' = push(edges, i)
+        }
+        i' = i + 1
+    }
+    return(result.edges)
+}
+
+// count_edges(signal, threshold) - Count total number of threshold crossings
+export fn count_edges(signal, threshold) {
+    n = len(signal)
+    result = evolve { count = 0, i = 1 } while (i < n) {
+        // Check for rising or falling edge
+        is_rising = rising_edge(signal[i], signal[i-1], threshold)
+        is_falling = falling_edge(signal[i], signal[i-1], threshold)
+        if (is_rising) {
+            count' = count + 1
+        }
+        if (is_falling) {
+            count' = count + 1
+        }
+        i' = i + 1
+    }
+    return(result.count)
+}
+
+// =============================================================================
+// SAMPLE AND HOLD
+// =============================================================================
+
+// sample_hold(trigger, value, held_value) - Sample and hold operation
+// When trigger is true, returns value; otherwise returns held_value
+export fn sample_hold(trigger, value, held_value) {
+    result = if (trigger) { return(value) } else { return(held_value) }
+    return(result)
+}
+
+// sample_on_edge(signal, data, threshold) - Sample data values at rising edges
+// Returns array of sampled values
+export fn sample_on_edge(signal, data, threshold) {
+    n = len(signal)
+    result = evolve { samples = [], i = 1 } while (i < n) {
+        if (rising_edge(signal[i], signal[i-1], threshold)) {
+            samples' = push(samples, data[i])
+        }
+        i' = i + 1
+    }
+    return(result.samples)
+}
+
+// =============================================================================
+// TRIGGER LOGIC
+// =============================================================================
+
+// trigger_once(condition, triggered_prev) - Trigger that fires only once
+// Returns { triggered, output } where output is 1 on first trigger, 0 otherwise
+export fn trigger_once(condition, triggered_prev) {
+    if (condition) {
+        if (triggered_prev == false) {
+            return({ triggered = true, output = 1 })
+        }
+    }
+    result = if (triggered_prev) { return(true) } else { return(condition) }
+    return({ triggered = result, output = 0 })
+}
+
+// monostable(trigger, duration_samples, counter_prev) - Monostable multivibrator
+// Outputs 1 for duration_samples after trigger, then returns to 0
+// Returns { output, counter }
+export fn monostable(trigger, duration_samples, counter_prev) {
+    if (trigger) {
+        if (counter_prev == 0) {
+            // Start new pulse
+            return({ output = 1, counter = duration_samples })
+        }
+    }
+
+    if (counter_prev > 0) {
+        new_counter = counter_prev - 1
+        output = if (new_counter > 0) { return(1) } else { return(0) }
+        return({ output = output, counter = new_counter })
+    }
+
+    return({ output = 0, counter = 0 })
+}
+
+// =============================================================================
+// PEAK DETECTION
+// =============================================================================
+
+// find_peaks(signal) - Find local maxima in signal
+// Returns array of indices where peaks occur
+export fn find_peaks(signal) {
+    n = len(signal)
+
+    if (n < 3) {
+        return([])
+    }
+
+    result = evolve { peaks = [], i = 1 } while (i < n - 1) {
+        // Peak: signal[i] > signal[i-1] and signal[i] > signal[i+1]
+        if (signal[i] > signal[i - 1]) {
+            if (signal[i] > signal[i + 1]) {
+                peaks' = push(peaks, i)
+            }
+        }
+        i' = i + 1
+    }
+    return(result.peaks)
+}
+
+// find_valleys(signal) - Find local minima in signal
+// Returns array of indices where valleys occur
+export fn find_valleys(signal) {
+    n = len(signal)
+
+    if (n < 3) {
+        return([])
+    }
+
+    result = evolve { valleys = [], i = 1 } while (i < n - 1) {
+        // Valley: signal[i] < signal[i-1] and signal[i] < signal[i+1]
+        if (signal[i] < signal[i - 1]) {
+            if (signal[i] < signal[i + 1]) {
+                valleys' = push(valleys, i)
+            }
+        }
+        i' = i + 1
+    }
+    return(result.valleys)
+}
+
+// =============================================================================
+// HYSTERESIS COMPARATOR
+// =============================================================================
+
+// hysteresis_compare(x, high_thresh, low_thresh, prev_output) - Comparator with hysteresis
+// Output switches to 1 when x > high_thresh, switches to 0 when x < low_thresh
+export fn hysteresis_compare(x, high_thresh, low_thresh, prev_output) {
+    // Use max to clamp differences
+    // max(0, x - high) == 0 means x <= high (not above threshold)
+    // max(0, low - x) == 0 means x >= low (not below threshold)
+    diff_high = x - high_thresh
+    diff_low = low_thresh - x
+    clamped_high = max(0, diff_high)
+    clamped_low = max(0, diff_low)
+
+    // Use if-expression to determine result based on prev_output and thresholds
+    // Use epsilon check instead of exact == 0 to avoid floating point issues
+    epsilon = 0.00001
+    is_currently_low = if (prev_output == 0) { return(true) } else { return(false) }
+    is_above_high = if (clamped_high * clamped_high < epsilon) { return(false) } else { return(true) }
+    is_below_low = if (clamped_low * clamped_low < epsilon) { return(false) } else { return(true) }
+
+    // Logic: if currently low, switch to high only if above high threshold
+    //        if currently high, switch to low only if below low threshold
+    if (is_currently_low) {
+        result = if (is_above_high) { return(1) } else { return(0) }
+        return(result)
+    }
+    result = if (is_below_low) { return(0) } else { return(1) }
+    return(result)
+}
