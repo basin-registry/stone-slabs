@@ -1,0 +1,8 @@
+name = "draw3d"
+version = "0.1.0"
+entry = "main.stn"
+description = "3D drawing: shapes, transforms, bounds, volume, surface area"
+
+deps = {
+    vec = "0.1.0"
+}

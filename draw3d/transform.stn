@@ -1,0 +1,323 @@
+// draw3d/transform.stn - Functional transforms for 3D shapes
+// All transforms return(new shapes (immutable))
+
+import add, sub, mul, rotate_x as vec_rotate_x, rotate_y as vec_rotate_y, rotate_z as vec_rotate_z from vec/vec3
+
+DEG = 3.14159265358979323846 / 180
+
+fn rot_x(pt, angle: num, pivot) = add(pivot, vec_rotate_x(sub(pt, pivot), angle * DEG))
+fn rot_y(pt, angle: num, pivot) = add(pivot, vec_rotate_y(sub(pt, pivot), angle * DEG))
+fn rot_z(pt, angle: num, pivot) = add(pivot, vec_rotate_z(sub(pt, pivot), angle * DEG))
+
+fn translate_points(points, offset) {
+    n = len(points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, add(points[i], offset))
+        i' = i + 1
+    }
+    return(state.pts)
+}
+
+fn rotate_points_x(points, angle: num, pivot) {
+    n = len(points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, rot_x(points[i], angle, pivot))
+        i' = i + 1
+    }
+    return(state.pts)
+}
+
+fn rotate_points_y(points, angle: num, pivot) {
+    n = len(points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, rot_y(points[i], angle, pivot))
+        i' = i + 1
+    }
+    return(state.pts)
+}
+
+fn rotate_points_z(points, angle: num, pivot) {
+    n = len(points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, rot_z(points[i], angle, pivot))
+        i' = i + 1
+    }
+    return(state.pts)
+}
+
+fn scale_points(points, factor: num, pivot) {
+    n = len(points)
+    state = evolve {pts = [], i = 0} while (i < n) {
+        pts' = push(pts, add(pivot, mul(sub(points[i], pivot), factor)))
+        i' = i + 1
+    }
+    return(state.pts)
+}
+
+fn rotate_normals_x(normals, angle: num) {
+    n = len(normals)
+    state = evolve {vals = [], i = 0} while (i < n) {
+        vals' = push(vals, vec_rotate_x(normals[i], angle * DEG))
+        i' = i + 1
+    }
+    return(state.vals)
+}
+
+fn rotate_normals_y(normals, angle: num) {
+    n = len(normals)
+    state = evolve {vals = [], i = 0} while (i < n) {
+        vals' = push(vals, vec_rotate_y(normals[i], angle * DEG))
+        i' = i + 1
+    }
+    return(state.vals)
+}
+
+fn rotate_normals_z(normals, angle: num) {
+    n = len(normals)
+    state = evolve {vals = [], i = 0} while (i < n) {
+        vals' = push(vals, vec_rotate_z(normals[i], angle * DEG))
+        i' = i + 1
+    }
+    return(state.vals)
+}
+
+fn translate_shape(shape, offset) {
+    t = shape.type
+    if (t == "box") {
+        return({type = shape.type, center = add(shape.center, offset), size = shape.size, rotation = shape.rotation, material = shape.material})
+    }
+    if (t == "sphere") {
+        return({type = shape.type, center = add(shape.center, offset), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cylinder") {
+        return({type = shape.type, start = add(shape.start, offset), end = add(shape.end, offset), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cone") {
+        return({type = shape.type, start = add(shape.start, offset), end = add(shape.end, offset), radius = shape.radius, material = shape.material})
+    }
+    if (t == "torus") {
+        return({type = shape.type, center = add(shape.center, offset), major_radius = shape.major_radius, minor_radius = shape.minor_radius, axis = shape.axis, material = shape.material})
+    }
+    if (t == "mesh") {
+        return({type = shape.type, vertices = translate_points(shape.vertices, offset), indices = shape.indices, normals = shape.normals, uvs = shape.uvs, material = shape.material})
+    }
+    if (t == "line3d") {
+        return({type = shape.type, start = add(shape.start, offset), end = add(shape.end, offset), material = shape.material})
+    }
+    if (t == "polyline3d") {
+        return({type = shape.type, points = translate_points(shape.points, offset), closed = shape.closed, material = shape.material})
+    }
+    if (t == "pointcloud") {
+        return({type = shape.type, points = translate_points(shape.points, offset), point_size = shape.point_size, material = shape.material})
+    }
+    if (t == "group") {
+        return({type = shape.type, objects = shape.objects, material = shape.material,
+                position = add(shape.position, offset), rotation = shape.rotation, scale = shape.scale, anchor = shape.anchor})
+    }
+    return(shape)
+}
+
+export fn translate(shape, offset) = translate_shape(shape, offset)
+
+fn rotate_x_shape(shape, angle: num, pivot) {
+    t = shape.type
+    if (t == "box") {
+        return({type = shape.type, center = rot_x(shape.center, angle, pivot), size = shape.size,
+                rotation = [shape.rotation[0] + angle, shape.rotation[1], shape.rotation[2]], material = shape.material})
+    }
+    if (t == "sphere") {
+        return({type = shape.type, center = rot_x(shape.center, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cylinder") {
+        return({type = shape.type, start = rot_x(shape.start, angle, pivot), end = rot_x(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cone") {
+        return({type = shape.type, start = rot_x(shape.start, angle, pivot), end = rot_x(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "torus") {
+        return({type = shape.type, center = rot_x(shape.center, angle, pivot), major_radius = shape.major_radius, minor_radius = shape.minor_radius,
+                axis = vec_rotate_x(shape.axis, angle * DEG), material = shape.material})
+    }
+    if (t == "mesh") {
+        return({type = shape.type,
+                vertices = rotate_points_x(shape.vertices, angle, pivot),
+                indices = shape.indices,
+                normals = rotate_normals_x(shape.normals, angle),
+                uvs = shape.uvs,
+                material = shape.material})
+    }
+    if (t == "line3d") {
+        return({type = shape.type, start = rot_x(shape.start, angle, pivot), end = rot_x(shape.end, angle, pivot), material = shape.material})
+    }
+    if (t == "polyline3d") {
+        return({type = shape.type, points = rotate_points_x(shape.points, angle, pivot), closed = shape.closed, material = shape.material})
+    }
+    if (t == "pointcloud") {
+        return({type = shape.type, points = rotate_points_x(shape.points, angle, pivot), point_size = shape.point_size, material = shape.material})
+    }
+    if (t == "group") {
+        return({type = shape.type, objects = shape.objects, material = shape.material,
+                position = rot_x(shape.position, angle, pivot),
+                rotation = [shape.rotation[0] + angle, shape.rotation[1], shape.rotation[2]],
+                scale = shape.scale, anchor = shape.anchor})
+    }
+    return(shape)
+}
+
+fn rotate_y_shape(shape, angle: num, pivot) {
+    t = shape.type
+    if (t == "box") {
+        return({type = shape.type, center = rot_y(shape.center, angle, pivot), size = shape.size,
+                rotation = [shape.rotation[0], shape.rotation[1] + angle, shape.rotation[2]], material = shape.material})
+    }
+    if (t == "sphere") {
+        return({type = shape.type, center = rot_y(shape.center, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cylinder") {
+        return({type = shape.type, start = rot_y(shape.start, angle, pivot), end = rot_y(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cone") {
+        return({type = shape.type, start = rot_y(shape.start, angle, pivot), end = rot_y(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "torus") {
+        return({type = shape.type, center = rot_y(shape.center, angle, pivot), major_radius = shape.major_radius, minor_radius = shape.minor_radius,
+                axis = vec_rotate_y(shape.axis, angle * DEG), material = shape.material})
+    }
+    if (t == "mesh") {
+        return({type = shape.type,
+                vertices = rotate_points_y(shape.vertices, angle, pivot),
+                indices = shape.indices,
+                normals = rotate_normals_y(shape.normals, angle),
+                uvs = shape.uvs,
+                material = shape.material})
+    }
+    if (t == "line3d") {
+        return({type = shape.type, start = rot_y(shape.start, angle, pivot), end = rot_y(shape.end, angle, pivot), material = shape.material})
+    }
+    if (t == "polyline3d") {
+        return({type = shape.type, points = rotate_points_y(shape.points, angle, pivot), closed = shape.closed, material = shape.material})
+    }
+    if (t == "pointcloud") {
+        return({type = shape.type, points = rotate_points_y(shape.points, angle, pivot), point_size = shape.point_size, material = shape.material})
+    }
+    if (t == "group") {
+        return({type = shape.type, objects = shape.objects, material = shape.material,
+                position = rot_y(shape.position, angle, pivot),
+                rotation = [shape.rotation[0], shape.rotation[1] + angle, shape.rotation[2]],
+                scale = shape.scale, anchor = shape.anchor})
+    }
+    return(shape)
+}
+
+fn rotate_z_shape(shape, angle: num, pivot) {
+    t = shape.type
+    if (t == "box") {
+        return({type = shape.type, center = rot_z(shape.center, angle, pivot), size = shape.size,
+                rotation = [shape.rotation[0], shape.rotation[1], shape.rotation[2] + angle], material = shape.material})
+    }
+    if (t == "sphere") {
+        return({type = shape.type, center = rot_z(shape.center, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cylinder") {
+        return({type = shape.type, start = rot_z(shape.start, angle, pivot), end = rot_z(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "cone") {
+        return({type = shape.type, start = rot_z(shape.start, angle, pivot), end = rot_z(shape.end, angle, pivot), radius = shape.radius, material = shape.material})
+    }
+    if (t == "torus") {
+        return({type = shape.type, center = rot_z(shape.center, angle, pivot), major_radius = shape.major_radius, minor_radius = shape.minor_radius,
+                axis = vec_rotate_z(shape.axis, angle * DEG), material = shape.material})
+    }
+    if (t == "mesh") {
+        return({type = shape.type,
+                vertices = rotate_points_z(shape.vertices, angle, pivot),
+                indices = shape.indices,
+                normals = rotate_normals_z(shape.normals, angle),
+                uvs = shape.uvs,
+                material = shape.material})
+    }
+    if (t == "line3d") {
+        return({type = shape.type, start = rot_z(shape.start, angle, pivot), end = rot_z(shape.end, angle, pivot), material = shape.material})
+    }
+    if (t == "polyline3d") {
+        return({type = shape.type, points = rotate_points_z(shape.points, angle, pivot), closed = shape.closed, material = shape.material})
+    }
+    if (t == "pointcloud") {
+        return({type = shape.type, points = rotate_points_z(shape.points, angle, pivot), point_size = shape.point_size, material = shape.material})
+    }
+    if (t == "group") {
+        return({type = shape.type, objects = shape.objects, material = shape.material,
+                position = rot_z(shape.position, angle, pivot),
+                rotation = [shape.rotation[0], shape.rotation[1], shape.rotation[2] + angle],
+                scale = shape.scale, anchor = shape.anchor})
+    }
+    return(shape)
+}
+
+export fn rotate_x(shape, angle: num, pivot = [0, 0, 0]) = rotate_x_shape(shape, angle, pivot)
+export fn rotate_y(shape, angle: num, pivot = [0, 0, 0]) = rotate_y_shape(shape, angle, pivot)
+export fn rotate_z(shape, angle: num, pivot = [0, 0, 0]) = rotate_z_shape(shape, angle, pivot)
+export fn rotate(shape, angle: num, pivot = [0, 0, 0]) = rotate_z_shape(shape, angle, pivot)
+
+fn scale_shape(shape, factor: num, pivot) {
+    t = shape.type
+    if (t == "box") {
+        return({type = shape.type, center = add(pivot, mul(sub(shape.center, pivot), factor)),
+                size = mul(shape.size, factor), rotation = shape.rotation, material = shape.material})
+    }
+    if (t == "sphere") {
+        return({type = shape.type, center = add(pivot, mul(sub(shape.center, pivot), factor)), radius = shape.radius * factor, material = shape.material})
+    }
+    if (t == "cylinder") {
+        return({type = shape.type,
+                start = add(pivot, mul(sub(shape.start, pivot), factor)),
+                end = add(pivot, mul(sub(shape.end, pivot), factor)),
+                radius = shape.radius * factor,
+                material = shape.material})
+    }
+    if (t == "cone") {
+        return({type = shape.type,
+                start = add(pivot, mul(sub(shape.start, pivot), factor)),
+                end = add(pivot, mul(sub(shape.end, pivot), factor)),
+                radius = shape.radius * factor,
+                material = shape.material})
+    }
+    if (t == "torus") {
+        return({type = shape.type,
+                center = add(pivot, mul(sub(shape.center, pivot), factor)),
+                major_radius = shape.major_radius * factor,
+                minor_radius = shape.minor_radius * factor,
+                axis = shape.axis,
+                material = shape.material})
+    }
+    if (t == "mesh") {
+        return({type = shape.type,
+                vertices = scale_points(shape.vertices, factor, pivot),
+                indices = shape.indices,
+                normals = shape.normals,
+                uvs = shape.uvs,
+                material = shape.material})
+    }
+    if (t == "line3d") {
+        return({type = shape.type,
+                start = add(pivot, mul(sub(shape.start, pivot), factor)),
+                end = add(pivot, mul(sub(shape.end, pivot), factor)),
+                material = shape.material})
+    }
+    if (t == "polyline3d") {
+        return({type = shape.type, points = scale_points(shape.points, factor, pivot), closed = shape.closed, material = shape.material})
+    }
+    if (t == "pointcloud") {
+        return({type = shape.type, points = scale_points(shape.points, factor, pivot), point_size = shape.point_size * factor, material = shape.material})
+    }
+    if (t == "group") {
+        return({type = shape.type, objects = shape.objects, material = shape.material,
+                position = add(pivot, mul(sub(shape.position, pivot), factor)),
+                rotation = shape.rotation,
+                scale = shape.scale * factor,
+                anchor = shape.anchor})
+    }
+    return(shape)
+}
+
+export fn scale(shape, factor: num, pivot = [0, 0, 0]) = scale_shape(shape, factor, pivot)

@@ -1,0 +1,48 @@
+// draw3d.stn - 3D Drawing Primitives (Barrel Module)
+// Unified 3D geometry library for Stone
+//
+// Coordinate system: Z-up, right-handed
+//   X = right, Y = forward, Z = up
+//   Coordinates as arrays: [x, y, z]
+//
+// Usage:
+//   import draw3d                            // Namespace import
+//   import box, sphere, translate from draw3d  // Flat import
+//
+// Modules:
+//   draw3d/types     - Shape type definitions
+//   draw3d/transform - Functional transforms
+//   draw3d/ops       - Constructors and operations
+
+// =============================================================================
+// MATERIALS
+// =============================================================================
+
+export Material3D, CadMaterial, LineMaterial from draw3d/types
+export vary, reveal from display
+// =============================================================================
+// TYPES
+// =============================================================================
+
+export Box, Sphere, Cylinder, Cone, Torus from draw3d/types
+export Mesh, BrepMesh, Line3D, Polyline3D, PointCloud from draw3d/types
+export Shape3D, Group3D from draw3d/types
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+export box, cube, sphere, cylinder, cone, torus from draw3d/ops
+export line3d, polyline3d, mesh, pointcloud, group from draw3d/ops
+
+// =============================================================================
+// TRANSFORMS
+// =============================================================================
+
+export translate, rotate, rotate_x, rotate_y, rotate_z, scale from draw3d/transform
+
+// =============================================================================
+// OPERATIONS
+// =============================================================================
+
+export bounds, volume, surface_area, center from draw3d/ops

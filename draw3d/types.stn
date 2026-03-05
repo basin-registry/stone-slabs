@@ -1,0 +1,168 @@
+// draw3d/types.stn - 3D Shape Primitives
+// Geometry + optional material (empty material = terminal default)
+//
+// Coordinate system: Z-up, right-handed
+//   X = right, Y = forward, Z = up
+//   Coordinates as arrays: [x, y, z]
+//   Angles in degrees (Euler XYZ order)
+//   Default axis for cylinders, cones, torus = [0, 0, 1] (Z-up)
+
+import AnimateWrapper, RevealWrapper from display
+
+// =============================================================================
+// COORDINATE TYPES
+// =============================================================================
+
+export Bounds3 = {min = [0, 0, 0], max = [0, 0, 0]}
+
+// =============================================================================
+// MATERIALS
+// =============================================================================
+
+// Standard material for 3D shapes
+export Material3D = {
+    color: string | array<num, 1> = "",   // "" = default; "#ff0000", "red", or [r, g, b] (0-1)
+    emissive: string | array<num, 1> = "",// "" = none; same formats as color
+    opacity = 1,
+    metalness = 0,
+    roughness = 0.5,
+    wireframe = false,
+    side = "front"          // "front", "back", "double"
+}
+
+// CAD-style material with edges
+export CadMaterial = {
+    color = "#b0b0b0",
+    edge_color = "#333333",
+    edge_width = 1,
+    show_edges = true,
+    show_faces = true
+}
+
+// Line/wireframe material
+export LineMaterial = {
+    color = "#000000",
+    width = 1,
+    opacity = 1,
+    dashed = false
+}
+
+// =============================================================================
+// PRIMITIVE SHAPES
+// =============================================================================
+
+// Box - defined by center, size, and rotation
+export Box = {
+    type = "box",
+    center: array<num, R> | AnimateWrapper = [0, 0, 0],
+    size: array<num, R> | AnimateWrapper = [1, 1, 1],        // [width_x, depth_y, height_z]
+    rotation: array<num, R> | AnimateWrapper = [0, 0, 0],    // Euler angles (degrees)
+    material: Material3D = {}
+}
+
+// Sphere - defined by center and radius
+export Sphere = {
+    type = "sphere",
+    center: array<num, R> | AnimateWrapper = [0, 0, 0],
+    radius: num | AnimateWrapper = 1,
+    material: Material3D = {}
+}
+
+// Cylinder - defined by start point, end point, and radius
+export Cylinder = {
+    type = "cylinder",
+    start: array<num, R> | AnimateWrapper = [0, 0, 0],
+    end: array<num, R> | AnimateWrapper = [0, 0, 1],
+    radius: num | AnimateWrapper = 1,
+    material: Material3D = {}
+}
+
+// Cone - defined by start point (base), end point (tip), and radius
+export Cone = {
+    type = "cone",
+    start: array<num, R> | AnimateWrapper = [0, 0, 0],
+    end: array<num, R> | AnimateWrapper = [0, 0, 1],
+    radius: num | AnimateWrapper = 1,
+    material: Material3D = {}
+}
+
+// Torus - donut shape
+export Torus = {
+    type = "torus",
+    center: array<num, R> | AnimateWrapper = [0, 0, 0],
+    major_radius: num | AnimateWrapper = 1,
+    minor_radius: num | AnimateWrapper = 0.3,
+    axis: array<num, R> | AnimateWrapper = [0, 0, 1],
+    material: Material3D = {}
+}
+
+// =============================================================================
+// MESH (indexed triangle mesh)
+// =============================================================================
+
+// Triangle mesh - compatible with Clay's get_mesh() output
+export Mesh = {
+    type = "mesh",
+    vertices: array<num, 2>,            // Required - Nx3 array of vertex positions
+    indices: array<num, 1> | array<num, 2> = [],  // Triangle indices: flat [i,j,k,...] or nested [[i,j,k],...]
+    normals: array<num, 2> = [],        // Per-vertex normals (Nx3, auto-computed if omitted)
+    uvs: array<num, 2> = [],            // Texture coords (Nx2, optional)
+    material: Material3D = {}
+}
+
+// BRep mesh - solid with explicit topology edges (from Clay's get_brep())
+// Vertices/normals are flat interleaved arrays: [x,y,z, x,y,z, ...]
+export BrepMesh = {
+    type = "brep_mesh",
+    vertices: array<num, 1>,            // Flat vertex positions [x,y,z,x,y,z,...]
+    triangles: array<num, 1> = [],      // Triangle indices
+    normals: array<num, 1> = [],        // Flat per-vertex normals
+    edge_vertices: array<num, 1> = [],  // Flat edge line-segment vertices
+    material: Material3D = {}
+}
+
+// =============================================================================
+// LINE/POINT PRIMITIVES
+// =============================================================================
+
+// Line segment in 3D
+export Line3D = {
+    type = "line3d",
+    start: array<num, R> | AnimateWrapper = [0, 0, 0],
+    end: array<num, R> | AnimateWrapper = [1, 0, 0],
+    material: Material3D = {}
+}
+
+// Polyline in 3D (connected line segments)
+export Polyline3D = {
+    type = "polyline3d",
+    points: array<num, 2> | AnimateWrapper,  // Required - Nx3 array of points
+    closed = false,
+    material: Material3D = {}
+}
+
+// Point cloud
+export PointCloud = {
+    type = "pointcloud",
+    points: array<num, 2> | RevealWrapper,     // Required - Nx3 array of points
+    point_size: num | AnimateWrapper = 1,
+    material: Material3D = {}
+}
+
+// =============================================================================
+// GROUP & UNION TYPE
+// =============================================================================
+
+// Group - container for multiple 3D shapes with render-time transform
+export Group3D = {
+    type = "group",
+    objects: array<Shape3D, 1> | RevealWrapper | AnimateWrapper = [],
+    material: Material3D = {},      // Default material for child objects
+    position: array<num, R> | AnimateWrapper = [0, 0, 0],   // Accumulated translation offset
+    rotation: array<num, R> | AnimateWrapper = [0, 0, 0],   // Accumulated rotation (Euler XYZ degrees)
+    scale: num | AnimateWrapper = 1,                      // Accumulated uniform scale factor
+    anchor: array<num, 1> = [0, 0, 0] // Pivot point for rotation/scale
+}
+
+// Union of all 3D shape types
+export Shape3D = Box | Sphere | Cylinder | Cone | Torus | Mesh | BrepMesh | Line3D | Polyline3D | PointCloud | Group3D

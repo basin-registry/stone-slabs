@@ -1,0 +1,177 @@
+// draw3d/ops.stn - Constructors and operations for 3D shapes
+
+import add, sub, mul, min_vec, max_vec, dist from vec/vec3
+import sqrt from primitives
+import Box, Sphere, Cylinder, Cone, Torus, Mesh, Line3D, Polyline3D, PointCloud, Group3D from draw3d/types
+
+PI = 3.14159265358979323846
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+export fn box(p: Box) = p
+export fn cube(size: num) = box({size = [size, size, size]})
+export fn sphere(p: Sphere) = p
+export fn cylinder(p: Cylinder) = p
+export fn cone(p: Cone) = p
+export fn torus(p: Torus) = p
+export fn line3d(p: Line3D) = p
+export fn polyline3d(p: Polyline3D) = p
+export fn mesh(p: Mesh) = p
+export fn pointcloud(p: PointCloud) = p
+export fn group(p: Group3D) = p
+
+// =============================================================================
+// BOUNDS
+// =============================================================================
+
+fn bounds_box(b) {
+    hs = mul(b.size, 0.5)
+    return({min = sub(b.center, hs), max = add(b.center, hs)})
+}
+
+fn bounds_sphere(s) {
+    r = [s.radius, s.radius, s.radius]
+    return({min = sub(s.center, r), max = add(s.center, r)})
+}
+
+fn bounds_cylinder(c) {
+    r = [c.radius, c.radius, c.radius]
+    lo = min_vec(c.start, c.end)
+    hi = max_vec(c.start, c.end)
+    return({min = sub(lo, r), max = add(hi, r)})
+}
+
+fn bounds_cone(co) {
+    r = [co.radius, co.radius, co.radius]
+    lo = min_vec(co.start, co.end)
+    hi = max_vec(co.start, co.end)
+    return({min = sub(lo, r), max = add(hi, r)})
+}
+
+fn bounds_torus(t) {
+    r = t.major_radius + t.minor_radius
+    e = [r, r, t.minor_radius]
+    return({min = sub(t.center, e), max = add(t.center, e)})
+}
+
+fn bounds_mesh(m) {
+    if (len(m.vertices) == 0) {
+        return({min = [0, 0, 0], max = [0, 0, 0]})
+    }
+    first = m.vertices[0]
+    result = evolve {result_min = first, result_max = first} for (pt in m.vertices) {
+        result_min' = min_vec(result_min, pt)
+        result_max' = max_vec(result_max, pt)
+    }
+    return({min = result.result_min, max = result.result_max})
+}
+
+fn bounds_polyline(p) {
+    if (len(p.points) == 0) {
+        return({min = [0, 0, 0], max = [0, 0, 0]})
+    }
+    first = p.points[0]
+    result = evolve {result_min = first, result_max = first} for (pt in p.points) {
+        result_min' = min_vec(result_min, pt)
+        result_max' = max_vec(result_max, pt)
+    }
+    return({min = result.result_min, max = result.result_max})
+}
+
+export fn bounds(shape) {
+    t = shape.type
+    if (t == "box") { return(bounds_box(shape)) }
+    if (t == "sphere") { return(bounds_sphere(shape)) }
+    if (t == "cylinder") { return(bounds_cylinder(shape)) }
+    if (t == "cone") { return(bounds_cone(shape)) }
+    if (t == "torus") { return(bounds_torus(shape)) }
+    if (t == "mesh") { return(bounds_mesh(shape)) }
+    if (t == "line3d") { return({min = min_vec(shape.start, shape.end), max = max_vec(shape.start, shape.end)}) }
+    if (t == "polyline3d") { return(bounds_polyline(shape)) }
+    if (t == "pointcloud") { return(bounds_polyline({points = shape.points})) }
+    return({min = [0, 0, 0], max = [0, 0, 0]})
+}
+
+// =============================================================================
+// VOLUME
+// =============================================================================
+
+export fn volume(shape) {
+    t = shape.type
+    if (t == "box") { return(shape.size[0] * shape.size[1] * shape.size[2]) }
+    if (t == "sphere") { return((4 / 3) * PI * shape.radius * shape.radius * shape.radius) }
+    if (t == "cylinder") {
+        h = dist(shape.start, shape.end)
+        return(PI * shape.radius * shape.radius * h)
+    }
+    if (t == "cone") {
+        h = dist(shape.start, shape.end)
+        return((1 / 3) * PI * shape.radius * shape.radius * h)
+    }
+    if (t == "torus") {
+        return(2 * PI * PI * shape.major_radius * shape.minor_radius * shape.minor_radius)
+    }
+    return(0)
+}
+
+// =============================================================================
+// SURFACE AREA
+// =============================================================================
+
+export fn surface_area(shape) {
+    t = shape.type
+    if (t == "box") {
+        return(2 * (shape.size[0] * shape.size[1] + shape.size[1] * shape.size[2] + shape.size[2] * shape.size[0]))
+    }
+    if (t == "sphere") { return(4 * PI * shape.radius * shape.radius) }
+    if (t == "cylinder") {
+        h = dist(shape.start, shape.end)
+        return(2 * PI * shape.radius * h + 2 * PI * shape.radius * shape.radius)
+    }
+    if (t == "cone") {
+        h = dist(shape.start, shape.end)
+        slant = sqrt(shape.radius * shape.radius + h * h)
+        return(PI * shape.radius * slant + PI * shape.radius * shape.radius)
+    }
+    if (t == "torus") {
+        return(4 * PI * PI * shape.major_radius * shape.minor_radius)
+    }
+    return(0)
+}
+
+// =============================================================================
+// CENTER
+// =============================================================================
+
+fn center_line(l) =
+    [(l.start[0] + l.end[0]) / 2, (l.start[1] + l.end[1]) / 2, (l.start[2] + l.end[2]) / 2]
+
+fn center_mesh(m) {
+    n = len(m.vertices)
+    if (n == 0) {
+        return([0, 0, 0])
+    }
+    result = evolve {sum_x = 0, sum_y = 0, sum_z = 0} for (pt in m.vertices) {
+        sum_x' = sum_x + pt[0]
+        sum_y' = sum_y + pt[1]
+        sum_z' = sum_z + pt[2]
+    }
+    return([result.sum_x / n, result.sum_y / n, result.sum_z / n])
+}
+
+export fn center(shape) {
+    t = shape.type
+    if (t == "box" || t == "sphere" || t == "torus") { return(shape.center) }
+    if (t == "cylinder" || t == "cone") { return(mul(add(shape.start, shape.end), 0.5)) }
+    if (t == "line3d") { return(center_line(shape)) }
+    if (t == "mesh") { return(center_mesh(shape)) }
+    if (t == "polyline3d") { return(center_mesh({vertices = shape.points})) }
+    if (t == "pointcloud") { return(center_mesh({vertices = shape.points})) }
+    if (t == "group") {
+        b = bounds(shape)
+        return([(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2])
+    }
+    return([0, 0, 0])
+}
