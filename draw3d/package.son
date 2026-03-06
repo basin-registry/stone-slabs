@@ -1,5 +1,5 @@
 name = "draw3d"
-version = "0.1.0"
+version = "0.0.1"
 entry = "main.stn"
 description = "3D drawing: shapes, transforms, bounds, volume, surface area"
 

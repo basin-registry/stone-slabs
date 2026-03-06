@@ -50,3 +50,38 @@ group({
 ```
 
 Groups nest. Each child group's transform is relative to its parent, creating hierarchies for articulated assemblies.
+
+## API Reference
+
+**Shapes:**
+
+| Function | Description |
+|----------|-------------|
+| `box(p: Box)` | Create box from params record |
+| `cube(size: num)` | Create cube (box with equal dimensions) |
+| `sphere(p: Sphere)` | Create sphere from params record |
+| `cylinder(p: Cylinder)` | Create cylinder from params record |
+| `cone(p: Cone)` | Create cone from params record |
+| `torus(p: Torus)` | Create torus from params record |
+| `line3d(p: Line3D)` | Create 3D line from params record |
+| `polyline3d(p: Polyline3D)` | Create 3D polyline from params record |
+| `mesh(p: Mesh)` | Create mesh from params record |
+| `pointcloud(p: PointCloud)` | Create pointcloud from params record |
+| `group(p: Group3D)` | Create group from params record |
+
+**Queries & Transforms:**
+
+| Function | Description |
+|----------|-------------|
+| `bounds(shape)` | Axis-aligned bounding box |
+| `volume(shape)` | Volume |
+| `surface_area(shape)` | Surface area |
+| `center(shape)` | Get center point |
+| `translate(shape, offset)` | Move center |
+| `rotate_x(shape, angle, pivot = [0, 0, 0])` | Rotate around X axis |
+| `rotate_y(shape, angle, pivot = [0, 0, 0])` | Rotate around Y axis |
+| `rotate_z(shape, angle, pivot = [0, 0, 0])` | Rotate around Z axis |
+| `rotate(shape, angles)` | Add to rotation angles |
+| `scale(shape, factor, pivot = [0, 0, 0])` | Scale from pivot |
+
+**Types:** `Bounds3`, `Material3D`, `CadMaterial`, `LineMaterial`, `Box`, `Sphere`, `Cylinder`, `Cone`, `Torus`, `Mesh`, `Line3D`, `Polyline3D`, `PointCloud`, `Group3D`, `Shape3D`
