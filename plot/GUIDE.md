@@ -1,5 +1,7 @@
 # Plot
 
+Aliased as `plots` and `graph`.
+
 Data plotting with graph terminals. Import from `plot`.
 
 ```stone
@@ -75,3 +77,35 @@ show(panel({
     ]
 }))
 ```
+
+## API Reference
+
+**Types:**
+
+| Type | Description |
+|------|-------------|
+| `Point2D` | `{x: num, y: num}` - 2D point record |
+| `Point3D` | `{x: num, y: num, z: num}` - 3D point record |
+
+**2D Plot Constructors:**
+
+All 2D constructors accept an optional `style: object` parameter as the last argument.
+
+| Function | Description |
+|----------|-------------|
+| `line(data: LineData)` | create 2D line plot. `line({x, y, z})` for 3D (auto-detected). `line({points})` from [[x,y], ...] |
+| `scatter(data: ScatterData)` | create 2D scatter plot. `scatter({x, y, z})` for 3D. `scatter({points})` from [[x,y], ...] |
+| `bar(data: BarData)` | create bar chart |
+| `area(data: AreaData)` | `area({x, y})` or `area({points})` |
+| `heatmap(data: HeatmapData)` | create heatmap. `heatmap({z, x, y})` with custom axes |
+| `contour(data: ContourData)` | create contour plot. `contour({z, x, y})` with custom axes |
+
+**3D Plot Constructors:**
+
+| Function | Description |
+|----------|-------------|
+| `surface(data: SurfaceData)` | create surface. `surface({z, x, y})` with custom axes |
+| `text(data: TextData)` | create 3D text label |
+| `axes(data: AxesData)` | `axes({})` or `axes({size})` -- XYZ axis helper |
+
+Re-exports `graph2d`, `graph3d`, `show`, `vary`, `reveal` from `display`.

@@ -1,0 +1,102 @@
+// plot/3d.stn - 3D Plot Constructors
+// Provides typed constructor functions for 3D plots and objects
+//
+// Usage: import surface, sphere, box from plot/3d
+
+import DomainConfig, AnimateWrapper, RevealWrapper from display
+export vary, reveal from display
+
+export AnimAny = AnimateWrapper | RevealWrapper
+
+// =============================================================================
+// RE-EXPORTS FROM DRAW3D (3D shapes for use in graph3d scenes)
+// =============================================================================
+
+export Box, Sphere, Cylinder, Cone, Torus, Mesh, Material3D from draw3d
+export box, sphere, cylinder, cone, torus, mesh from draw3d
+
+// =============================================================================
+// GRAPH CONFIG SCHEMAS
+// =============================================================================
+
+// Configuration schema for 3D graphs
+export Graph3DConfig = {
+    title: string = "",
+    background: string = "",
+    x_label: string = "",
+    y_label: string = "",
+    z_label: string = "",
+    x_min: num = 0,
+    x_max: num = 0,
+    y_min: num = 0,
+    y_max: num = 0,
+    z_min: num = 0,
+    z_max: num = 0,
+    domains: dict<DomainConfig> = {}
+}
+
+// =============================================================================
+// STYLE SCHEMAS
+// =============================================================================
+
+// Style schema for surface plots
+export SurfaceStyle = {
+    color_scale: string | AnimAny = "viridis",
+    show_contours: bool | AnimAny = true,
+    opacity: num | AnimAny = 0.8,
+    label: string | AnimAny = ""
+}
+
+// Style schema for 3D text
+export TextStyle = {
+    color: string | AnimAny = "",
+    font_size: num | AnimAny = 14,
+    label: string | AnimAny = ""
+}
+
+// =============================================================================
+// DATA SCHEMAS
+// =============================================================================
+
+// Data schema for surface plots
+export SurfaceData = {
+    type: string = "surface",
+    z: array<num, R> | AnimAny,
+    x: array<num, 1> | AnimAny = [],
+    y: array<num, 1> | AnimAny = [],
+    style: SurfaceStyle | AnimAny = {}
+}
+
+// Data schema for 3D text
+export TextData = {
+    type: string = "text",
+    position: array<num, R> | AnimAny = [0, 0, 0],
+    text: string | AnimAny,
+    style: TextStyle | AnimAny = {}
+}
+
+// Data schema for axes helper
+export AxesData = {
+    type: string = "axes",
+    size: num | AnimAny = 1
+}
+
+// =============================================================================
+// CONSTRUCTORS
+// =============================================================================
+
+export fn surface(data: SurfaceData) =
+    {type = "surface",
+     z = data.z,
+     x = data.x,
+     y = data.y,
+     style = data.style}
+
+export fn text(data: TextData) =
+    {type = "text",
+     position = data.position,
+     text = data.text,
+     style = data.style}
+
+export fn axes(data: AxesData) =
+    {type = "axes", size = data.size}
