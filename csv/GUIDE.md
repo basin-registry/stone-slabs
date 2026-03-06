@@ -4,11 +4,11 @@
 import parse from csv
 ```
 
-`parse(string)` — Parse CSV into 2D string array
+`parse(string)` -- Parse CSV into 2D string array
 
-`parse(string, Schema)` — Parse with schema-driven type conversion, returns array of records
+`parse(string, Schema)` -- Parse with schema-driven type conversion, returns array of records
 
-`parse(string, Schema, options)` — Parse with schema + options
+`parse(string, Schema, options)` -- Parse with schema + options
 
 Options: `delimiter` (field separator, default ","), `columns` (positional column-to-field mapping for headerless data)
 
@@ -26,3 +26,11 @@ points = parse(csv_text, Point)
 // Tab-separated, no header
 data = parse(text, Point, {delimiter = "\t", columns = ["x", "y"]})
 ```
+
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `csv(string)` | Parse CSV string into array of arrays |
+| `csv(string, Schema)` | Parse CSV with typed schema validation |
+| `csv(string, Schema, opts)` | Parse CSV with schema and options (delimiter, header, etc.) |
