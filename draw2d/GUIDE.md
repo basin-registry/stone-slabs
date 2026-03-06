@@ -52,3 +52,48 @@ group({
 ```
 
 Groups nest. Each child's transform is relative to its parent.
+
+## API Reference
+
+**Shapes:**
+
+| Function | Description |
+|----------|-------------|
+| `circle(p: Circle)` | Create circle from params record |
+| `rect(p: Rect)` | Create rectangle from params record |
+| `ellipse(p: Ellipse)` | Create ellipse from params record |
+| `line(p: Line)` | Create line from params record |
+| `arc(p: Arc)` | Create arc from params record |
+| `polygon(p: Polygon)` | Create polygon from params record |
+| `polyline(p: Polygon)` | Create polyline (open polygon) from params record |
+| `text(p: Text)` | Create text from params record |
+| `group(p: Group2D)` | Create group from params record |
+
+**Path Commands:**
+
+| Function | Description |
+|----------|-------------|
+| `move_to(x: num, y: num)` | Move to point |
+| `line_to(x: num, y: num)` | Line to point |
+| `quad_to(cx, cy, x, y)` | Quadratic bezier curve |
+| `cubic_to(c1x, c1y, c2x, c2y, x, y)` | Cubic bezier curve |
+| `arc_to(rx, ry, rotation, large_arc, sweep, x, y)` | Arc to point |
+| `close_path` | Close path |
+| `path(commands: array<PathCmd, 1>)` | Create path from commands |
+
+**Queries & Transforms:**
+
+| Function | Description |
+|----------|-------------|
+| `bounds(shape)` | Bounding box |
+| `area(shape)` | Area |
+| `perimeter(shape)` | Perimeter |
+| `center(shape)` | Get center point |
+| `contains(shape, pt)` | Point containment test |
+| `translate(shape, offset)` | Move center |
+| `rotate(shape, angle, pivot = [0, 0])` | Rotate around pivot |
+| `scale(shape, factor, pivot = [0, 0])` | Scale from pivot |
+| `mirror_x(shape, x = 0)` | Mirror across vertical line |
+| `mirror_y(shape, y = 0)` | Mirror across horizontal line |
+
+**Types:** `Bounds2`, `Style2D`, `Circle`, `Rect`, `Ellipse`, `Line`, `Arc`, `Polygon`, `PathCmd`, `Path`, `Text`, `Group2D`, `Shape2D`

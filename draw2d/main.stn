@@ -19,7 +19,7 @@
 // TYPES
 // =============================================================================
 
-export Style2D, Circle, Rect, Ellipse, Line, Arc, Polygon, Path, PathCmd, Text, Group2D, Shape2D from draw2d/types
+export Style2D, Circle, Rect, Ellipse, Line, Arc, Polygon, Polyline, Path, PathCmd, Text, Group2D, Shape2D from draw2d/types
 export vary, reveal from display
 // =============================================================================
 // CONSTRUCTORS

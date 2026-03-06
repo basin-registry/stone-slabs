@@ -1,5 +1,5 @@
 name = "draw2d"
-version = "0.1.0"
+version = "0.0.1"
 entry = "main.stn"
 description = "2D drawing: shapes, transforms, bounds, area, perimeter, containment"
 

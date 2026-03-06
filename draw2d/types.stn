@@ -22,12 +22,14 @@ export Bounds2 = {min = [0, 0], max = [0, 0]}
 // STYLE
 // =============================================================================
 
-// Style for 2D shapes (optional on shapes, "none" = no fill/stroke)
+// Style for 2D shapes — SVG-aligned defaults: filled, no stroke.
+// Shapes override their own style default where it makes sense
+// (e.g. Line/Arc default to stroke-only).
 export Style2D = {
-    fill = "none",              // "none" = no fill, color string otherwise
+    fill = "foreground",        // "none" = no fill, color string otherwise
     fill_opacity = 1,
-    stroke = "foreground",            // "none" = no stroke, color string otherwise
-    stroke_width = 1,
+    stroke = "none",            // "none" = no stroke, color string otherwise
+    stroke_width = 0,
     stroke_opacity = 1,
     stroke_dash: array<num, 1> = [],    // [] = solid line
     stroke_cap = "butt",        // "butt", "round", "square"
@@ -66,15 +68,15 @@ export Ellipse = {
     style: Style2D = {}
 }
 
-// Line segment - defined by start and end points
+// Line segment - stroke-only (no fill)
 export Line = {
     type = "line",
     start: array<num, R> | AnimateWrapper = [0, 0],
     end: array<num, R> | AnimateWrapper = [1, 0],
-    style: Style2D = {}
+    style: Style2D = { fill = "none", stroke = "foreground", stroke_width = 1 }
 }
 
-// Circular arc - defined by center, radius, and angles
+// Circular arc - stroke-only (no fill)
 export Arc = {
     type = "arc",
     center: array<num, R> | AnimateWrapper = [0, 0],
@@ -82,15 +84,23 @@ export Arc = {
     start_angle: num | AnimateWrapper = 0,       // Degrees
     end_angle: num | AnimateWrapper = 180,       // Degrees
     clockwise = false,
-    style: Style2D = {}
+    style: Style2D = { fill = "none", stroke = "foreground", stroke_width = 1 }
 }
 
-// Polygon/Polyline - defined by array of points
+// Polygon - closed shape defined by array of points
 export Polygon = {
     type = "polygon",
     points: array<num, 2> | AnimateWrapper | RevealWrapper,  // No default - required field
-    closed = true,        // true = polygon, false = polyline
+    closed = true,
     style: Style2D = {}
+}
+
+// Polyline - open stroke-only line through points
+export Polyline = {
+    type = "polygon",
+    points: array<num, 2> | AnimateWrapper | RevealWrapper,  // No default - required field
+    closed = false,
+    style: Style2D = { fill = "none", stroke = "foreground", stroke_width = 1 }
 }
 
 // =============================================================================
@@ -115,7 +125,7 @@ export Path = {
 // TEXT
 // =============================================================================
 
-// Text element
+// Text element — defaults to fill=foreground, no stroke (text shouldn't have outlines)
 export Text = {
     type = "text",
     position: array<num, R> | AnimateWrapper = [0, 0],
@@ -125,7 +135,7 @@ export Text = {
     anchor = "start",   // "start", "middle", "end"
     baseline = "alphabetic",    // "top", "middle", "alphabetic", "bottom"
     rotation: num | AnimateWrapper = 0,       // Degrees
-    style: Style2D = {}
+    style: Style2D = { fill = "foreground" }
 }
 
 // =============================================================================
@@ -144,4 +154,4 @@ export Group2D = {
 }
 
 // Union of all 2D shape types
-export Shape2D = Circle | Rect | Ellipse | Line | Arc | Polygon | Path | Text | Group2D
+export Shape2D = Circle | Rect | Ellipse | Line | Arc | Polygon | Polyline | Path | Text | Group2D

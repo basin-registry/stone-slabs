@@ -3,7 +3,7 @@
 
 import min_vec, max_vec, dist from vec/vec2
 import sqrt, sin, cos, abs from primitives
-import Circle, Rect, Ellipse, Line, Arc, Polygon, Text, Group2D from draw2d/types
+import Circle, Rect, Ellipse, Line, Arc, Polygon, Polyline, Text, Group2D from draw2d/types
 
 PI = 3.14159265358979323846
 
@@ -23,7 +23,7 @@ export fn arc(p: Arc) = p
 
 export fn polygon(p: Polygon) = p
 
-export fn polyline(p: Polygon) = {type = p.type, points = p.points, closed = false, style = p.style}
+export fn polyline(p: Polyline) = p
 
 export fn text(p: Text) = p
 
