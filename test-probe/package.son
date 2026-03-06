@@ -1,0 +1,4 @@
+name = "test-probe"
+version = "0.0.1"
+entry = "main.stn"
+description = "test"
