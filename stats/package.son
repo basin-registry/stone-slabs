@@ -1,4 +1,4 @@
 name = "stats"
-version = "0.1.0"
+version = "0.0.1"
 entry = "main.stn"
 description = "Statistics: mean, median, variance, std, covariance, correlation"
