@@ -95,3 +95,25 @@ vary(data, {t = 0, scenario = 1})
 // Progressively reveal points
 { type = "pointcloud", points = reveal(pts, "draw"), point_size = 3 }
 ```
+
+## API Reference
+
+**Display Constructors:**
+
+| Function | Description |
+|----------|-------------|
+| `canvas2d(config: Canvas2D)` | Create a 2D canvas display (shapes from draw2d) |
+| `canvas3d(config: Canvas3D)` | Create a 3D canvas display (shapes from draw3d) |
+| `graph2d(config: Graph2D)` | Create a 2D graph display (plots from plot module) |
+| `graph3d(config: Graph3D)` | Create a 3D graph display (plots from plot module) |
+| `panel(config: Panel)` | Create a panel of displays with shared animation domains |
+
+**Animation Utilities:**
+
+| Function | Description |
+|----------|-------------|
+| `show(display)` | Display a terminal or group (creates visible output) |
+| `vary(data: array, domain: string)` | Animate property by selecting from array via domain index |
+| `vary(data: array, varies: dict)` | Multi-domain animation mapping domains to array dimensions |
+| `reveal(data: array, domain: string)` | Progressive reveal: show elements 0 through domain index |
+| `reveal(data: array, reveals: dict)` | Multi-domain progressive reveal |
