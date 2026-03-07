@@ -1,7 +1,5 @@
 # Interpolation
 
-Aliased as `interp`.
-
 ```stone
 import interp1_linear, lookup1d from interpolate
 ```
