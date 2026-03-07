@@ -1,4 +1,0 @@
-name = "optimize"
-version = "0.0.1"
-entry = "main.stn"
-description = "Nonlinear functions, switching logic, saturation, dead zone, friction models"
