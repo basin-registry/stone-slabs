@@ -2,7 +2,7 @@
 
 > Declarative display system: canvas2d, canvas3d, graph2d, graph3d, animation, panels
 
-**Version:** 0.1.0
+**Version:** 0.0.2
 
 ---
 
