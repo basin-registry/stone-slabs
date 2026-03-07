@@ -1,4 +1,4 @@
 name = "display"
-version = "0.0.1"
+version = "0.1.0"
 entry = "main.stn"
 description = "Declarative display system: canvas2d, canvas3d, graph2d, graph3d, animation, panels"

@@ -5,12 +5,12 @@
 //
 // Usage:
 //   import canvas2d, canvas3d, show from display
-//   import graph2d from plots
+//   import graph2d from plot
 //
 //   show(canvas2d({ title = "My Canvas", objects = [...] }))
 //
 // For data viz convenience (includes plot types like line, scatter, surface):
-//   import graph2d, line, scatter from plots
+//   import graph2d, line, scatter from plot
 
 // =============================================================================
 // RUNTIME _show IMPORT
