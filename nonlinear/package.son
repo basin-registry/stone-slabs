@@ -1,0 +1,4 @@
+name = "nonlinear"
+version = "0.1.0"
+entry = "main.stn"
+description = "Nonlinear functions, switching logic, saturation, dead zone, friction models"

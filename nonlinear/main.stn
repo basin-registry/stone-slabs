@@ -1,0 +1,236 @@
+// nonlinear — Nonlinear Functions and Switching Library
+// Provides nonlinear functions, switching logic, friction models, and quantization
+//
+// Usage: import sign, saturate, dead_zone from nonlinear
+
+import PI, exp, pow from math
+
+// =============================================================================
+// BASIC NONLINEARITIES
+// =============================================================================
+
+// sign(x) - Sign function
+// Returns -1 for negative, 0 for zero, 1 for positive
+export fn sign(x) {
+    result = if (x > 0) { return(1) } else { return(if (x < 0) { return(-1) } else { return(0) }) }
+    return(result)
+}
+
+// heaviside(x) - Heaviside step function
+// Returns 0 for x < 0, 0.5 for x == 0, 1 for x > 0
+export fn heaviside(x) {
+    result = if (x > 0) { return(1) } else { return(if (x < 0) { return(0) } else { return(0.5) }) }
+    return(result)
+}
+
+// step(x) - Unit step function (alternative to heaviside)
+// Returns 0 for x < 0, 1 for x >= 0
+export fn step(x) {
+    result = if (x >= 0) { return(1) } else { return(0) }
+    return(result)
+}
+
+// =============================================================================
+// SATURATION AND LIMITING
+// =============================================================================
+
+// saturate(u, lower, upper) - Clamp value to [lower, upper]
+export fn saturate(u, lower, upper) {
+    result = if (u < lower) { return(lower) } else { return(if (u > upper) { return(upper) } else { return(u) }) }
+    return(result)
+}
+
+// =============================================================================
+// DEAD ZONE
+// =============================================================================
+
+// dead_zone(u, lower, upper) - Dead zone function
+// Output is 0 within the dead band, linear outside
+export fn dead_zone(u, lower, upper) {
+    if (u > upper) {
+        return(u - upper)
+    }
+    if (u < lower) {
+        return(u - lower)
+    }
+    return(0)
+}
+
+// dead_zone_symmetric(u, deadband) - Symmetric dead zone
+// dead_zone with lower = -deadband, upper = +deadband
+export fn dead_zone_symmetric(u, deadband) {
+    return(dead_zone(u, -deadband, deadband))
+}
+
+// =============================================================================
+// RATE LIMITING
+// =============================================================================
+
+// rate_limiter(u, u_prev, dt, rising_rate, falling_rate) - Rate limiter
+// Limits the rate of change of u
+// rising_rate and falling_rate are positive values
+export fn rate_limiter(u, u_prev, dt, rising_rate, falling_rate) {
+    delta = u - u_prev
+    max_rise = rising_rate * dt
+    max_fall = falling_rate * dt
+
+    if (delta > max_rise) {
+        return(u_prev + max_rise)
+    }
+    if (delta < -max_fall) {
+        return(u_prev - max_fall)
+    }
+    return(u)
+}
+
+// rate_limiter_symmetric(u, u_prev, dt, rate) - Symmetric rate limiter
+export fn rate_limiter_symmetric(u, u_prev, dt, rate) {
+    return(rate_limiter(u, u_prev, dt, rate, rate))
+}
+
+// =============================================================================
+// HYSTERESIS AND MEMORY
+// =============================================================================
+
+// backlash(u, u_prev, y_prev, deadband) - Mechanical backlash model
+// Output changes only when input exceeds deadband from last output
+export fn backlash(u, u_prev, y_prev, deadband) {
+    half_db = deadband / 2
+
+    if (u > y_prev + half_db) {
+        return(u - half_db)
+    }
+    if (u < y_prev - half_db) {
+        return(u + half_db)
+    }
+    return(y_prev)
+}
+
+// relay(u, on_thresh, off_thresh, y_prev) - Relay with hysteresis
+// on_thresh > off_thresh for standard relay behavior
+// Returns 1 when turning on, 0 when turning off
+export fn relay(u, on_thresh, off_thresh, y_prev) {
+    if (y_prev == 0) {
+        // Currently off - turn on when exceeding on_thresh
+        result = if (u >= on_thresh) { return(1) } else { return(0) }
+        return(result)
+    }
+    // Currently on - turn off when below off_thresh
+    result = if (u <= off_thresh) { return(0) } else { return(1) }
+    return(result)
+}
+
+// schmitt_trigger(u, high_thresh, low_thresh, prev_state) - Schmitt trigger
+// Same as relay but with explicit state parameter
+export fn schmitt_trigger(u, high_thresh, low_thresh, prev_state) {
+    return(relay(u, high_thresh, low_thresh, prev_state))
+}
+
+// =============================================================================
+// FRICTION MODELS
+// =============================================================================
+
+// coulomb_friction(v, Fc) - Simple Coulomb friction
+// Returns friction force: -Fc * sign(v)
+export fn coulomb_friction(v, Fc) {
+    return(-Fc * sign(v))
+}
+
+// coulomb_viscous_friction(v, Fc, b) - Coulomb + viscous friction
+// Returns friction force: -Fc * sign(v) - b * v
+export fn coulomb_viscous_friction(v, Fc, b) {
+    return(-Fc * sign(v) - b * v)
+}
+
+// viscous_friction(v, b) - Pure viscous damping
+// Returns friction force: -b * v
+export fn viscous_friction(v, b) {
+    return(-b * v)
+}
+
+// stribeck_friction(v, Fc, Fs, vs, sigma) - Stribeck friction model
+// Fc: Coulomb friction
+// Fs: Static friction (breakaway force)
+// vs: Stribeck velocity
+// sigma: Stribeck exponent (typically 1-2)
+// Returns friction force magnitude
+export fn stribeck_friction(v, Fc, Fs, vs, sigma) {
+    v_abs = abs(v)
+    // Stribeck curve: F = Fc + (Fs - Fc) * exp(-(v/vs)^sigma)
+    stribeck_term = (Fs - Fc) * exp(-pow(v_abs / vs, sigma))
+    F_mag = Fc + stribeck_term
+    return(-F_mag * sign(v))
+}
+
+// =============================================================================
+// QUANTIZATION
+// =============================================================================
+
+// quantize(x, q) - Quantize to nearest multiple of q
+export fn quantize(x, q) {
+    return(round(x / q) * q)
+}
+
+// floor_quantize(x, q) - Quantize down to multiple of q
+export fn floor_quantize(x, q) {
+    return(floor(x / q) * q)
+}
+
+// ceil_quantize(x, q) - Quantize up to multiple of q
+export fn ceil_quantize(x, q) {
+    return(ceil(x / q) * q)
+}
+
+// =============================================================================
+// ANGLE WRAPPING
+// =============================================================================
+
+// wrap_angle(theta) - Wrap angle to [-pi, pi]
+export fn wrap_angle(theta) {
+    // Use modulo to wrap
+    wrapped = theta - 2 * PI * floor((theta + PI) / (2 * PI))
+    return(wrapped)
+}
+
+// wrap_angle_deg(theta) - Wrap angle to [-180, 180] degrees
+export fn wrap_angle_deg(theta) {
+    wrapped = theta - 360 * floor((theta + 180) / 360)
+    return(wrapped)
+}
+
+// wrap_to_2pi(theta) - Wrap angle to [0, 2*pi]
+export fn wrap_to_2pi(theta) {
+    wrapped = theta - 2 * PI * floor(theta / (2 * PI))
+    return(wrapped)
+}
+
+// wrap_to_360(theta) - Wrap angle to [0, 360] degrees
+export fn wrap_to_360(theta) {
+    wrapped = theta - 360 * floor(theta / 360)
+    return(wrapped)
+}
+
+// Note: For always-positive modulo, use mod(x, m) from math module
+
+// =============================================================================
+// RAMP FUNCTIONS
+// =============================================================================
+
+// ramp(x) - Ramp function (positive part of x)
+// Returns max(0, x)
+export fn ramp(x) {
+    result = if (x > 0) { return(x) } else { return(0) }
+    return(result)
+}
+
+// ramp_limited(x, limit) - Limited ramp
+// Returns min(max(0, x), limit)
+export fn ramp_limited(x, limit) {
+    if (x < 0) {
+        return(0)
+    }
+    if (x > limit) {
+        return(limit)
+    }
+    return(x)
+}
