@@ -2,7 +2,7 @@
 
 > Data visualization: line, scatter, bar, area, heatmap, contour, surface plots
 
-**Version:** 0.1.0
+**Version:** 0.0.2
 
 ---
 
