@@ -2,7 +2,7 @@
 
 > Signal processing: windowing, digital filters, convolution, resampling, peak detection
 
-**Version:** 0.1.0
+**Version:** 0.0.2
 
 ---
 
