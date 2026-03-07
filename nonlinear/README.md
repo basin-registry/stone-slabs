@@ -2,7 +2,7 @@
 
 > Nonlinear functions, switching logic, saturation, dead zone, friction models
 
-**Version:** 0.1.0
+**Version:** 0.0.2
 
 ---
 
