@@ -1,5 +1,5 @@
 name = "plot"
-version = "0.0.1"
+version = "0.1.0"
 entry = "main.stn"
 description = "Data visualization: line, scatter, bar, area, heatmap, contour, surface plots"
 

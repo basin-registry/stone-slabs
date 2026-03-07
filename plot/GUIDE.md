@@ -1,7 +1,5 @@
 # Plot
 
-Aliased as `plots` and `graph`.
-
 Data plotting with graph terminals. Import from `plot`.
 
 ```stone

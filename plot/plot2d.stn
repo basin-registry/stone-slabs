@@ -72,6 +72,7 @@ export AreaStyle = {
 export HeatmapStyle = {
     color_scale: string | AnimAny = "hot",
     show_values: bool | AnimAny = false,
+    show_scale: bool | AnimAny = true,
     zmin: num | AnimAny = 0,
     zmax: num | AnimAny = 0,
     label: string | AnimAny = ""
