@@ -2,7 +2,7 @@
 
 > Interpolation and lookup tables: linear, nearest neighbor, 1D and 2D
 
-**Version:** 0.1.0
+**Version:** 0.0.2
 
 ---
 

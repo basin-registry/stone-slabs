@@ -1,4 +1,4 @@
 name = "interpolate"
-version = "0.1.0"
+version = "0.0.2"
 entry = "main.stn"
 description = "Interpolation and lookup tables: linear, nearest neighbor, 1D and 2D"
