@@ -4,7 +4,7 @@
 // Usage: import zero_crossing, rising_edge from signal
 //    or: import zero_crossing from signal/events
 
-import sign, ramp from optimize
+import sign, ramp from nonlinear
 
 // =============================================================================
 // ZERO CROSSING DETECTION

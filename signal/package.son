@@ -1,8 +1,8 @@
 name = "signal"
-version = "0.0.1"
+version = "0.1.0"
 entry = "main.stn"
 description = "Signal processing: windowing, digital filters, convolution, resampling, peak detection"
 
 deps = {
-    optimize = "0.1.0"
+    nonlinear = "0.1.0"
 }
