@@ -1,2 +1,0 @@
-export fn rgb(r, g, b) = { r = r; g = g; b = b }
-export fn hex_to_rgb(hex) = rgb(0, 0, 0)
