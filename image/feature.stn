@@ -2,27 +2,284 @@
 //
 // Corner detection, Hough transforms, and template matching.
 
+import sqrt, cos, sin, PI from math
+import conv2d, gaussian_blur from image/filter
+import zeros, set_at as _set_at from primitives
+
 // harris_corners(img, k, block_size, threshold) - Harris corner detector
-// Returns array of {x, y, response}
+// Computes Sobel gradients, forms structure tensor, smooths with Gaussian,
+// and finds corners where R = det(M) - k*trace(M)^2 exceeds threshold * max_response.
+// Returns array of {x, y, response} for detected corners.
 export fn harris_corners(img, k = 0.04, block_size = 3, threshold = 0.01) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+
+    // Step 1: Sobel gradients Ix, Iy
+    kx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+    ky = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]]
+    ix = conv2d(img, kx)
+    iy = conv2d(img, ky)
+
+    // Step 2: Structure tensor products (element-wise)
+    ixx[i][j] = ix[i][j] * ix[i][j]
+    iyy[i][j] = iy[i][j] * iy[i][j]
+    ixy[i][j] = ix[i][j] * iy[i][j]
+
+    // Step 3: Gaussian-smooth the tensor components over block_size window
+    sigma = block_size / 3.0
+    sxx = gaussian_blur(ixx, sigma, block_size)
+    syy = gaussian_blur(iyy, sigma, block_size)
+    sxy = gaussian_blur(ixy, sigma, block_size)
+
+    // Step 4: Compute Harris response R = det(M) - k * trace(M)^2
+    // det(M) = Sxx*Syy - Sxy^2, trace(M) = Sxx + Syy
+    response[i][j] = (sxx[i][j] * syy[i][j] - sxy[i][j] * sxy[i][j]) - k * (sxx[i][j] + syy[i][j]) * (sxx[i][j] + syy[i][j])
+
+    // Find maximum response for adaptive thresholding
+    max_r = evolve { mx = 0, i = 0 } while (i < h) {
+        row_max = evolve (rm = mx) for (j in range(w)) {
+            rm' = max(rm, response[i][j])
+        }
+        mx' = row_max
+        i' = i + 1
+    }
+    thresh = threshold * max_r.mx
+
+    // Step 5: Collect corners above threshold with non-maximum suppression (3x3)
+    corner_scan = evolve { corners = [], i = 1 } while (i < h - 1) {
+        row_corners = evolve { cs = corners, j = 1 } while (j < w - 1) {
+            r = response[i][j]
+            if (r > thresh) {
+                // Check if local maximum in 3x3 neighborhood
+                is_max = r >= response[i-1][j-1] && r >= response[i-1][j] && r >= response[i-1][j+1] &&
+                         r >= response[i][j-1] && r >= response[i][j+1] &&
+                         r >= response[i+1][j-1] && r >= response[i+1][j] && r >= response[i+1][j+1]
+                if (is_max) {
+                    cs' = push(cs, {x = j, y = i, response = r})
+                }
+            }
+            j' = j + 1
+        }
+        corners' = row_corners.cs
+        i' = i + 1
+    }
+    corner_scan.corners
 }
 
-// hough_line(binary_img, threshold) - Hough line detection
-// Returns array of {rho, theta, votes}
+// hough_line(binary_img, threshold) - Hough transform for line detection
+// Detects lines in the form rho = x*cos(theta) + y*sin(theta).
+// theta sampled at ~180 steps (1 degree resolution).
+// Returns array of {rho, theta, votes} for accumulator cells exceeding threshold.
 export fn hough_line(binary_img, threshold = 50) {
-    error("not yet implemented")
+    h = len(binary_img)
+    w = len(binary_img[0])
+
+    // Rho/theta resolution
+    n_theta = 180
+    diag = sqrt(h * h + w * w)
+    rho_max = floor(diag)
+    n_rho = 2 * rho_max + 1
+
+    // Precompute cos/sin tables for each theta step
+    cos_t[t] = cos(range(n_theta)[t] * PI / 180)
+    sin_t[t] = sin(range(n_theta)[t] * PI / 180)
+
+    // Accumulate votes: for each foreground pixel, vote in (rho, theta) space
+    acc = evolve { votes = zeros(n_rho * n_theta), r = 0 } while (r < h) {
+        row_acc = evolve { v = votes, c = 0 } while (c < w) {
+            if (binary_img[r][c] > 0) {
+                v' = evolve (vv = v) for (t in range(n_theta)) {
+                    rho = round(c * cos_t[t] + r * sin_t[t])
+                    rho_idx = rho + rho_max
+                    bin = rho_idx * n_theta + t
+                    if (bin >= 0 && bin < len(vv)) {
+                        vv' = _set_at(vv, bin, vv[bin] + 1)
+                    }
+                }
+            }
+            c' = c + 1
+        }
+        votes' = row_acc.v
+        r' = r + 1
+    }
+
+    // Extract peaks above threshold
+    line_scan = evolve { lines = [], ri = 0 } while (ri < n_rho) {
+        inner = evolve { ls = lines, ti = 0 } while (ti < n_theta) {
+            bin = ri * n_theta + ti
+            if (acc.votes[bin] > threshold) {
+                rho = ri - rho_max
+                theta = ti * PI / 180
+                ls' = push(ls, {rho = rho, theta = theta, votes = acc.votes[bin]})
+            }
+            ti' = ti + 1
+        }
+        lines' = inner.ls
+        ri' = ri + 1
+    }
+    line_scan.lines
 }
 
-// hough_circle(binary_img, min_r, max_r, threshold) - Hough circle detection
-// Returns array of {x, y, r, votes}
+// hough_circle(binary_img, min_r, max_r, threshold) - Hough transform for circle detection
+// Accumulates votes in (row, col, radius) space for each foreground pixel.
+// Uses 36 theta steps (every 10 degrees) for performance.
+// Returns array of {x, y, r, votes} for detected circles above threshold.
 export fn hough_circle(binary_img, min_r, max_r, threshold = 50) {
-    error("not yet implemented")
+    h = len(binary_img)
+    w = len(binary_img[0])
+    n_radii = max_r - min_r + 1
+
+    // Precompute cos/sin tables for 36 angle steps
+    cos_a[a] = cos(range(36)[a] * 10 * PI / 180)
+    sin_a[a] = sin(range(36)[a] * 10 * PI / 180)
+
+    // Accumulator: flattened 3D array [ri * (h * w) + row * w + col]
+    acc_size = n_radii * h * w
+    acc = evolve { votes = zeros(acc_size), r = 0 } while (r < h) {
+        row_acc = evolve { v = votes, c = 0 } while (c < w) {
+            if (binary_img[r][c] > 0) {
+                // Vote along circles of each candidate radius
+                v' = evolve (vv = v) for (ri in range(n_radii)) {
+                    radius = min_r + ri
+                    // Sample circle at 36 angles
+                    vv' = evolve (vvv = vv) for (a in range(36)) {
+                        cx = round(c - radius * cos_a[a])
+                        cy = round(r - radius * sin_a[a])
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                            bin = ri * h * w + cy * w + cx
+                            vvv' = _set_at(vvv, bin, vvv[bin] + 1)
+                        }
+                    }
+                }
+            }
+            c' = c + 1
+        }
+        votes' = row_acc.v
+        r' = r + 1
+    }
+
+    // Extract peaks above threshold
+    circle_scan = evolve { circles = [], ri = 0 } while (ri < n_radii) {
+        inner = evolve { cs = circles, row = 0 } while (row < h) {
+            inner2 = evolve { cs2 = cs, col = 0 } while (col < w) {
+                bin = ri * h * w + row * w + col
+                if (acc.votes[bin] > threshold) {
+                    cs2' = push(cs2, {x = col, y = row, r = min_r + ri, votes = acc.votes[bin]})
+                }
+                col' = col + 1
+            }
+            cs' = inner2.cs2
+            row' = row + 1
+        }
+        circles' = inner.cs
+        ri' = ri + 1
+    }
+    circle_scan.circles
 }
 
-// template_match(img, template, method) - Template matching
+// template_match(img, template, method) - Template matching via sliding window
 // method: "ncc" (normalized cross-correlation, default) or "ssd" (sum of squared differences)
-// Returns {x, y, score}
+// Returns {x, y, score} for the best match location.
+//   For NCC: best = highest score. For SSD: best = lowest score.
 export fn template_match(img, template, method = "ncc") {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    th = len(template)
+    tw = len(template[0])
+
+    // Output dimensions (valid positions for top-left corner of template)
+    oh = h - th + 1
+    ow = w - tw + 1
+    n = th * tw
+
+    result = if (method == "ncc") {
+        // Precompute template mean
+        t_total = evolve (s = 0) for (r in range(th)) {
+            s' = s + evolve (rs = 0) for (c in range(tw)) {
+                rs' = rs + template[r][c]
+            }
+        }
+        t_mean = t_total / n
+
+        // Precompute template std deviation
+        t_var = evolve (s = 0) for (r in range(th)) {
+            s' = s + evolve (rs = 0) for (c in range(tw)) {
+                d = template[r][c] - t_mean
+                rs' = rs + d * d
+            }
+        }
+        t_std = sqrt(t_var)
+
+        // Slide template over image, compute NCC at each position, track best
+        evolve { best_x = 0, best_y = 0, best_score = -1, oi = 0 } while (oi < oh) {
+            row_result = evolve { bx = best_x, by = best_y, bs = best_score, oj = 0 } while (oj < ow) {
+                // Compute patch mean
+                patch_sum = evolve (ps = 0) for (r in range(th)) {
+                    ps' = ps + evolve (rs = 0) for (c in range(tw)) {
+                        rs' = rs + img[oi + r][oj + c]
+                    }
+                }
+                p_mean = patch_sum / n
+
+                // Compute cross-correlation and patch std
+                stats = evolve { cc = 0, pn = 0, r = 0 } while (r < th) {
+                    inner = evolve { icc = cc, ipn = pn, c = 0 } while (c < tw) {
+                        td = template[r][c] - t_mean
+                        pd = img[oi + r][oj + c] - p_mean
+                        icc' = icc + td * pd
+                        ipn' = ipn + pd * pd
+                        c' = c + 1
+                    }
+                    cc' = inner.icc
+                    pn' = inner.ipn
+                    r' = r + 1
+                }
+
+                p_std = sqrt(stats.pn)
+                denom = t_std * p_std
+                ncc = if (denom > 0.0001) { stats.cc / denom } else { 0 }
+
+                // Track best (highest NCC)
+                if (ncc > bs) {
+                    bx' = oj
+                    by' = oi
+                    bs' = ncc
+                }
+                oj' = oj + 1
+            }
+            best_x' = row_result.bx
+            best_y' = row_result.by
+            best_score' = row_result.bs
+            oi' = oi + 1
+        }
+    } else {
+        // SSD: sum of squared differences — best = lowest score
+        evolve { best_x = 0, best_y = 0, best_score = -1, oi = 0 } while (oi < oh) {
+            row_result = evolve { bx = best_x, by = best_y, bs = best_score, oj = 0 } while (oj < ow) {
+                // Compute SSD between patch and template
+                ssd = evolve { s = 0, r = 0 } while (r < th) {
+                    inner = evolve { is_val = s, c = 0 } while (c < tw) {
+                        d = img[oi + r][oj + c] - template[r][c]
+                        is_val' = is_val + d * d
+                        c' = c + 1
+                    }
+                    s' = inner.is_val
+                    r' = r + 1
+                }
+
+                // Track best (lowest SSD); use -1 as sentinel for first iteration
+                if (bs < 0 || ssd.s < bs) {
+                    bx' = oj
+                    by' = oi
+                    bs' = ssd.s
+                }
+                oj' = oj + 1
+            }
+            best_x' = row_result.bx
+            best_y' = row_result.by
+            best_score' = row_result.bs
+            oi' = oi + 1
+        }
+    }
+    {x = result.best_x, y = result.best_y, score = result.best_score}
 }

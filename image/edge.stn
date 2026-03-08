@@ -3,8 +3,8 @@
 // Gradient-based and multi-stage edge detectors.
 // Input should be 2D grayscale. Returns vary by function.
 
-import sqrt, atan2 from math
-import conv2d from image/filter
+import sqrt, atan2, PI from math
+import conv2d, gaussian_blur from image/filter
 
 // Apply per-pixel binary op on two 2D arrays using evolve loops
 // (workaround for AoA comprehension bug in slab functions)
@@ -52,30 +52,160 @@ export fn sobel(img, axis = "both") {
 // prewitt(img, axis) - Prewitt edge detector
 // Returns {magnitude, direction}
 export fn prewitt(img, axis = "both") {
-    error("not yet implemented")
+    kx = [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]]
+    ky = [[-1, -1, -1], [0, 0, 0], [1, 1, 1]]
+    gx = conv2d(img, kx)
+    gy = conv2d(img, ky)
+    {magnitude = _map2d_mag(gx, gy), direction = _map2d_dir(gx, gy)}
 }
 
 // scharr(img, axis) - Scharr operator (more accurate than Sobel)
 // Returns {magnitude, direction}
 export fn scharr(img, axis = "both") {
-    error("not yet implemented")
+    kx = [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]]
+    ky = [[-3, -10, -3], [0, 0, 0], [3, 10, 3]]
+    gx = conv2d(img, kx)
+    gy = conv2d(img, ky)
+    {magnitude = _map2d_mag(gx, gy), direction = _map2d_dir(gx, gy)}
 }
 
 // roberts(img) - Roberts cross operator
 // Returns {magnitude, direction}
 export fn roberts(img) {
-    error("not yet implemented")
+    kx = [[1, 0], [0, -1]]
+    ky = [[0, 1], [-1, 0]]
+    gx = conv2d(img, kx)
+    gy = conv2d(img, ky)
+    {magnitude = _map2d_mag(gx, gy), direction = _map2d_dir(gx, gy)}
 }
 
 // laplacian(img) - Laplacian edge detector (second derivative)
 // Returns 2D array
 export fn laplacian(img) {
-    error("not yet implemented")
+    kernel = [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
+    conv2d(img, kernel)
 }
 
 // canny(img, low, high, sigma) - Canny multi-stage edge detector
 // low/high: hysteresis thresholds in [0.0, 1.0]
 // Returns binary edge map
 export fn canny(img, low = 0.1, high = 0.3, sigma = 1.0) {
-    error("not yet implemented")
+    // Step 1: Gaussian blur to reduce noise
+    blurred = gaussian_blur(img, sigma)
+
+    // Step 2: Sobel gradient magnitude and direction
+    kx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+    ky = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]]
+    gx = conv2d(blurred, kx)
+    gy = conv2d(blurred, ky)
+    mag = _map2d_mag(gx, gy)
+    dir = _map2d_dir(gx, gy)
+
+    h = len(mag)
+    w = len(mag[0])
+
+    // Step 3: Non-maximum suppression
+    // Quantize gradient direction to 0, 45, 90, 135 degrees and suppress
+    // pixels that are not local maxima along gradient direction
+    nms = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            val = if (i == 0 || i == h - 1 || j == 0 || j == w - 1) {
+                // Border pixels: suppress
+                0
+            } else {
+                m = mag[i][j]
+                // Normalize angle to [0, PI)
+                angle = dir[i][j]
+                a = if (angle < 0) { angle + PI } else { angle }
+
+                // Determine neighbor pair based on quantized angle
+                // 0 deg (horizontal): compare left/right
+                // 90 deg (vertical): compare up/down
+                // 45 deg: compare upper-right/lower-left
+                // 135 deg: compare upper-left/lower-right
+                neighbors = if (a < PI / 8 || a >= 7 * PI / 8) {
+                    {n1 = mag[i][j - 1], n2 = mag[i][j + 1]}
+                } else { if (a < 3 * PI / 8) {
+                    {n1 = mag[i - 1][j + 1], n2 = mag[i + 1][j - 1]}
+                } else { if (a < 5 * PI / 8) {
+                    {n1 = mag[i - 1][j], n2 = mag[i + 1][j]}
+                } else {
+                    {n1 = mag[i - 1][j - 1], n2 = mag[i + 1][j + 1]}
+                } } }
+
+                if (m >= neighbors.n1 && m >= neighbors.n2) { m } else { 0 }
+            }
+            cols' = push(cols, val)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    suppressed = nms.rows
+
+    // Step 4: Double thresholding — classify as strong (1), weak (0.5), or none (0)
+    thresholded = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            v = suppressed[i][j]
+            cls = if (v >= high) { 1 } else { if (v >= low) { 0.5 } else { 0 } }
+            cols' = push(cols, cls)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    edges = thresholded.rows
+
+    // Step 5: Hysteresis edge tracking
+    // Iteratively promote weak pixels (0.5) to strong (1) if adjacent to a strong pixel.
+    // Repeat until no more promotions occur.
+    final = evolve { map = edges, changed = 1 } while (changed > 0) {
+        pass = evolve { out = [], cnt = 0, i = 0 } while (i < h) {
+            row = evolve { cols = [], j = 0 } while (j < w) {
+                cur = map[i][j]
+                promoted = if (cur == 0.5) {
+                    // Check 8-connected neighbors for a strong pixel
+                    has_strong = evolve { found = 0, di = -1 } while (di <= 1) {
+                        inner = evolve { f = found, dj = -1 } while (dj <= 1) {
+                            ni = i + di
+                            nj = j + dj
+                            f' = if (f == 0 && ni >= 0 && ni < h && nj >= 0 && nj < w) {
+                                if (map[ni][nj] == 1) { 1 } else { f }
+                            } else { f }
+                            dj' = dj + 1
+                        }
+                        found' = inner.f
+                        di' = di + 1
+                    }
+                    if (has_strong.found == 1) { 1 } else { 0.5 }
+                } else {
+                    cur
+                }
+                new_cnt = if (cur == 0.5 && promoted == 1) { 1 } else { 0 }
+                cols' = push(cols, promoted)
+                j' = j + 1
+            }
+            // Count promotions in this row
+            row_cnt = evolve { rc = 0, rj = 0 } while (rj < w) {
+                rc' = if (map[i][rj] == 0.5 && row.cols[rj] == 1) { rc + 1 } else { rc }
+                rj' = rj + 1
+            }
+            out' = push(out, row.cols)
+            cnt' = cnt + row_cnt.rc
+            i' = i + 1
+        }
+        map' = pass.out
+        changed' = pass.cnt
+    }
+
+    // Convert to binary: strong (1) -> 1, everything else -> 0
+    binary = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            cols' = push(cols, if (final.map[i][j] == 1) { 1 } else { 0 })
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    binary.rows
 }

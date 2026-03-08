@@ -1,5 +1,5 @@
 name = "image"
-version = "0.1.0"
+version = "0.2.0"
 entry = "main.stn"
 description = "Image processing: color conversion, filtering, edge detection, morphology, transforms, segmentation, and analysis"
 

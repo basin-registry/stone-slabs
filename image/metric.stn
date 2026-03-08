@@ -27,7 +27,69 @@ export fn psnr(img1, img2) {
 }
 
 // ssim(img1, img2, window_size, k1, k2) - Structural Similarity Index
+// Uses sliding window approach computing local mean, variance, and covariance.
+// SSIM(x,y) = (2*mu_x*mu_y + C1)(2*sigma_xy + C2) / (mu_x^2 + mu_y^2 + C1)(sigma_x^2 + sigma_y^2 + C2)
 // Returns scalar in [0, 1], higher is better.
 export fn ssim(img1, img2, window_size = 7, k1 = 0.01, k2 = 0.03) {
-    error("not yet implemented")
+    h = len(img1)
+    w = len(img1[0])
+    half = floor(window_size / 2)
+
+    // Stability constants (L = 1.0 for float images in [0, 1])
+    L = 1.0
+    C1 = (k1 * L) ^ 2
+    C2 = (k2 * L) ^ 2
+
+    // For each valid window position, compute local SSIM and accumulate the mean
+    // Valid region: half <= r < h - half, half <= c < w - half
+    r_start = half
+    r_end = h - half
+    c_start = half
+    c_end = w - half
+    n_windows = max((r_end - r_start) * (c_end - c_start), 1)
+    win_n = window_size * window_size
+
+    total_ssim = evolve { sum = 0, r = r_start } while (r < r_end) {
+        row_sum = evolve { rs = sum, c = c_start } while (c < c_end) {
+            // Compute local means mu_x, mu_y over the window
+            stats = evolve { sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, wr = -half } while (wr <= half) {
+                inner = evolve { isx = sx, isy = sy, isxx = sxx, isyy = syy, isxy = sxy, wc = -half } while (wc <= half) {
+                    x = img1[r + wr][c + wc]
+                    y = img2[r + wr][c + wc]
+                    isx' = isx + x
+                    isy' = isy + y
+                    isxx' = isxx + x * x
+                    isyy' = isyy + y * y
+                    isxy' = isxy + x * y
+                    wc' = wc + 1
+                }
+                sx' = inner.isx
+                sy' = inner.isy
+                sxx' = inner.isxx
+                syy' = inner.isyy
+                sxy' = inner.isxy
+                wr' = wr + 1
+            }
+
+            mu_x = stats.sx / win_n
+            mu_y = stats.sy / win_n
+
+            // Variance and covariance (using E[X^2] - E[X]^2 form)
+            sigma_x_sq = stats.sxx / win_n - mu_x * mu_x
+            sigma_y_sq = stats.syy / win_n - mu_y * mu_y
+            sigma_xy = stats.sxy / win_n - mu_x * mu_y
+
+            // SSIM formula
+            numerator = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
+            denominator = (mu_x * mu_x + mu_y * mu_y + C1) * (sigma_x_sq + sigma_y_sq + C2)
+            local_ssim = numerator / denominator
+
+            rs' = rs + local_ssim
+            c' = c + 1
+        }
+        sum' = row_sum.rs
+        r' = r + 1
+    }
+
+    total_ssim.sum / n_windows
 }

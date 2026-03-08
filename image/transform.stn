@@ -2,10 +2,68 @@
 //
 // Resize, rotate, crop, flip, pad, and affine warping.
 
+import sin, cos, PI from math
+
+// Bilinear interpolation helper: sample image at fractional coordinates (y, x).
+// Returns 0.0 for out-of-bounds positions.
+fn _bilinear(img, y, x, rows, cols) {
+    if (y < 0.0 || y >= rows - 1.0 || x < 0.0 || x >= cols - 1.0) {
+        return(0.0)
+    }
+    y0 = int(floor(y))
+    x0 = int(floor(x))
+    y1 = min(y0 + 1, rows - 1)
+    x1 = min(x0 + 1, cols - 1)
+    fy = y - y0
+    fx = x - x0
+
+    // Four corner values
+    v00 = img[y0][x0]
+    v01 = img[y0][x1]
+    v10 = img[y1][x0]
+    v11 = img[y1][x1]
+
+    // Interpolate
+    v00 * (1.0 - fy) * (1.0 - fx) + v01 * (1.0 - fy) * fx + v10 * fy * (1.0 - fx) + v11 * fy * fx
+}
+
 // resize(img, w, h, method) - Resize image to w x h
 // method: "nearest", "bilinear" (default), "bicubic"
+// w = new number of columns, h = new number of rows
 export fn resize(img, w, h, method = "bilinear") {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    new_rows = h
+    new_cols = w
+
+    // Scale factors: map output pixel to source coordinate
+    sy = rows / new_rows
+    sx = cols / new_cols
+
+    result = evolve { out = [], r = 0 } while (r < new_rows) {
+        row = evolve { row_out = [], c = 0 } while (c < new_cols) {
+            src_y = (r + 0.5) * sy - 0.5
+            src_x = (c + 0.5) * sx - 0.5
+
+            val = if (method == "nearest") {
+                // Nearest neighbor
+                ny = int(round(src_y))
+                nx = int(round(src_x))
+                ny_c = min(max(ny, 0), rows - 1)
+                nx_c = min(max(nx, 0), cols - 1)
+                img[ny_c][nx_c]
+            } else {
+                // Bilinear interpolation
+                _bilinear(img, src_y, src_x, rows, cols)
+            }
+
+            row_out' = push(row_out, val)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // rotate(img, angle, center_x, center_y, fill) - Rotate image
@@ -13,27 +71,166 @@ export fn resize(img, w, h, method = "bilinear") {
 // center: rotation center (-1 = image center)
 // fill: value for pixels outside the original image
 export fn rotate(img, angle, center_x = -1, center_y = -1, fill = 0.0) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+
+    // Default center = image center
+    cx = if (center_x < 0) { (cols - 1) / 2.0 } else { center_x * 1.0 }
+    cy = if (center_y < 0) { (rows - 1) / 2.0 } else { center_y * 1.0 }
+
+    // Convert angle to radians
+    rad = angle * PI / 180.0
+    cos_a = cos(rad)
+    sin_a = sin(rad)
+
+    result = evolve { out = [], r = 0 } while (r < rows) {
+        row = evolve { row_out = [], c = 0 } while (c < cols) {
+            // Inverse rotation: map output (c, r) back to source
+            dx = c - cx
+            dy = r - cy
+            src_x = cos_a * dx + sin_a * dy + cx
+            src_y = -sin_a * dx + cos_a * dy + cy
+
+            val = if (src_y < 0.0 || src_y >= rows - 1.0 || src_x < 0.0 || src_x >= cols - 1.0) {
+                fill
+            } else {
+                _bilinear(img, src_y, src_x, rows, cols)
+            }
+
+            row_out' = push(row_out, val)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // crop(img, x, y, w, h) - Extract rectangular sub-region
+// (x, y) is the top-left corner column and row, (w, h) is width and height
 export fn crop(img, x, y, w, h) {
-    error("not yet implemented")
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            row_out' = push(row_out, img[y + r][x + c])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // flip(img, axis) - Flip image
-// axis: "horizontal" (default), "vertical", "both"
+// axis: "horizontal" (default) flips left-right, "vertical" flips top-bottom, "both" flips both
 export fn flip(img, axis = "horizontal") {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+
+    result = evolve { out = [], r = 0 } while (r < rows) {
+        row = evolve { row_out = [], c = 0 } while (c < cols) {
+            sr = if (axis == "vertical" || axis == "both") { rows - 1 - r } else { r }
+            sc = if (axis == "horizontal" || axis == "both") { cols - 1 - c } else { c }
+            row_out' = push(row_out, img[sr][sc])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // pad(img, top, right, bottom, left, mode, fill) - Pad image borders
 // mode: "constant" (default), "reflect", "wrap"
+// fill: constant value for "constant" mode (default 0.0)
 export fn pad(img, top, right, bottom, left, mode = "constant", fill = 0.0) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    new_rows = rows + top + bottom
+    new_cols = cols + left + right
+
+    result = evolve { out = [], r = 0 } while (r < new_rows) {
+        row = evolve { row_out = [], c = 0 } while (c < new_cols) {
+            // Map output (r, c) to source coordinates
+            sr = r - top
+            sc = c - left
+
+            val = if (sr >= 0 && sr < rows && sc >= 0 && sc < cols) {
+                // Inside original image
+                img[sr][sc]
+            } elif (mode == "reflect") {
+                // Reflect: mirror at boundaries
+                rr = if (sr < 0) { -sr - 1 } elif (sr >= rows) { 2 * rows - sr - 1 } else { sr }
+                rc = if (sc < 0) { -sc - 1 } elif (sc >= cols) { 2 * cols - sc - 1 } else { sc }
+                // Clamp after reflection for safety
+                rr_c = min(max(rr, 0), rows - 1)
+                rc_c = min(max(rc, 0), cols - 1)
+                img[rr_c][rc_c]
+            } elif (mode == "wrap") {
+                // Wrap: periodic boundary
+                wr = ((sr % rows) + rows) % rows
+                wc = ((sc % cols) + cols) % cols
+                img[wr][wc]
+            } else {
+                // Constant fill
+                fill
+            }
+
+            row_out' = push(row_out, val)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // warp_affine(img, matrix, out_w, out_h, fill) - Apply 2x3 affine transformation matrix
+// matrix: [[a, b, tx], [c, d, ty]] — the forward transform
+// For each output pixel, computes inverse transform to find source position,
+// then bilinear interpolates. out_w/out_h default to input dimensions if -1.
 export fn warp_affine(img, matrix, out_w, out_h, fill = 0.0) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    new_rows = if (out_h <= 0) { rows } else { out_h }
+    new_cols = if (out_w <= 0) { cols } else { out_w }
+
+    // Forward transform: [a b tx; c d ty]
+    a = matrix[0][0]
+    b = matrix[0][1]
+    tx = matrix[0][2]
+    c = matrix[1][0]
+    d = matrix[1][1]
+    ty = matrix[1][2]
+
+    // Inverse of the 2x2 part [a b; c d]
+    det = a * d - b * c
+    if (abs(det) < 1e-12) {
+        error("warp_affine: singular transformation matrix")
+    }
+    inv_a = d / det
+    inv_b = -b / det
+    inv_c = -c / det
+    inv_d = a / det
+
+    result = evolve { out = [], r = 0 } while (r < new_rows) {
+        row = evolve { row_out = [], col = 0 } while (col < new_cols) {
+            // Inverse transform: source = M_inv * (dst - t)
+            dx = col - tx
+            dy = r - ty
+            src_x = inv_a * dx + inv_b * dy
+            src_y = inv_c * dx + inv_d * dy
+
+            val = if (src_y < 0.0 || src_y >= rows - 1.0 || src_x < 0.0 || src_x >= cols - 1.0) {
+                fill
+            } else {
+                _bilinear(img, src_y, src_x, rows, cols)
+            }
+
+            row_out' = push(row_out, val)
+            col' = col + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }

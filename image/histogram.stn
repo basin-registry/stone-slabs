@@ -1,24 +1,266 @@
 // image/histogram — Histogram Operations
 //
 // Compute, equalize, and match image histograms.
+// Images are 2D grayscale arrays with values in [0.0, 1.0].
+
+import zeros, set_at as _set_at from primitives
 
 // histogram(img, bins) - Compute intensity histogram
-// Returns {counts, edges}
+// Returns 1D array of bin counts (length = bins)
 export fn histogram(img, bins = 256) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    n_pixels = h * w
+
+    // Count pixels in each bin using evolve over all pixels
+    counts = evolve { acc = zeros(bins), r = 0 } while (r < h) {
+        row_acc = evolve { a = acc, c = 0 } while (c < w) {
+            val = img[r][c]
+            // Clamp to [0, 1] and map to bin index
+            clamped = min(max(val, 0.0), 1.0)
+            idx = min(floor(clamped * bins), bins - 1)
+            a' = _set_at(a, idx, a[idx] + 1)
+            c' = c + 1
+        }
+        acc' = row_acc.a
+        r' = r + 1
+    }
+    counts.acc
+}
+
+// _cumulative_sum(arr) - Compute cumulative sum of a 1D array (internal helper)
+fn _cumulative_sum(arr) {
+    n = len(arr)
+    result = evolve { out = zeros(n), running = 0, i = 0 } while (i < n) {
+        running' = running + arr[i]
+        out' = _set_at(out, i, running')
+        i' = i + 1
+    }
+    result.out
 }
 
 // equalize_hist(img) - Global histogram equalization
+// Computes CDF from histogram, then remaps each pixel to equalize distribution
 export fn equalize_hist(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    n_pixels = h * w
+    bins = 256
+
+    // Compute histogram and CDF
+    hist = histogram(img, bins)
+    cdf = _cumulative_sum(hist)
+
+    // Find minimum non-zero CDF value
+    cdf_min = evolve { m = n_pixels, i = 0 } while (i < bins) {
+        m' = if (cdf[i] > 0 && cdf[i] < m) { cdf[i] } else { m }
+        i' = i + 1
+    }
+
+    // Remap each pixel using the equalized CDF
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            val = img[r][c]
+            clamped = min(max(val, 0.0), 1.0)
+            idx = min(floor(clamped * bins), bins - 1)
+            // Equalization formula: (CDF(v) - CDF_min) / (N - CDF_min)
+            denom = n_pixels - cdf_min.m
+            new_val = if (denom > 0) {
+                (cdf[idx] - cdf_min.m) / denom
+            } else { val }
+            cols' = push(cols, new_val)
+            c' = c + 1
+        }
+        out' = push(out, row.cols)
+        r' = r + 1
+    }
+    result.out
+}
+
+// _clip_histogram(hist, clip_limit) - Clip histogram bins at clip_limit and redistribute excess (internal helper)
+fn _clip_histogram(hist, clip_limit) {
+    bins = len(hist)
+
+    // Count total excess above clip_limit
+    excess = evolve { total = 0, i = 0 } while (i < bins) {
+        over = if (hist[i] > clip_limit) { hist[i] - clip_limit } else { 0 }
+        total' = total + over
+        i' = i + 1
+    }
+
+    // Clip and redistribute excess uniformly
+    redistribute = floor(excess.total / bins)
+    clipped = evolve { out = zeros(bins), i = 0 } while (i < bins) {
+        val = if (hist[i] > clip_limit) { clip_limit } else { hist[i] }
+        out' = _set_at(out, i, val + redistribute)
+        i' = i + 1
+    }
+    clipped.out
+}
+
+// _tile_histogram(img, r0, c0, r1, c1, bins) - Compute histogram for a tile region (internal helper)
+fn _tile_histogram(img, r0, c0, r1, c1, bins) {
+    counts = evolve { acc = zeros(bins), r = r0 } while (r < r1) {
+        row_acc = evolve { a = acc, c = c0 } while (c < c1) {
+            val = img[r][c]
+            clamped = min(max(val, 0.0), 1.0)
+            idx = min(floor(clamped * bins), bins - 1)
+            a' = _set_at(a, idx, a[idx] + 1)
+            c' = c + 1
+        }
+        acc' = row_acc.a
+        r' = r + 1
+    }
+    counts.acc
+}
+
+// _tile_cdf(hist) - Compute CDF from histogram and normalize to [0, 1] (internal helper)
+fn _tile_cdf(hist) {
+    bins = len(hist)
+    cdf = _cumulative_sum(hist)
+    total = cdf[bins - 1]
+    result = evolve { out = zeros(bins), i = 0 } while (i < bins) {
+        out' = _set_at(out, i, if (total > 0) { cdf[i] / total } else { 0 })
+        i' = i + 1
+    }
+    result.out
+}
+
+// _lookup_cdf(cdf, val, bins) - Look up the CDF value for a pixel (internal helper)
+fn _lookup_cdf(cdf, val, bins) {
+    clamped = min(max(val, 0.0), 1.0)
+    idx = min(floor(clamped * bins), bins - 1)
+    cdf[idx]
+}
+
+// _linear_interp(v00, v10, v01, v11, fy, fx) - Bilinear interpolation (internal helper)
+fn _linear_interp(v00, v10, v01, v11, fy, fx) {
+    top = v00 * (1 - fx) + v01 * fx
+    bot = v10 * (1 - fx) + v11 * fx
+    top * (1 - fy) + bot * fy
 }
 
 // clahe(img, clip_limit, grid_size) - Contrast-limited adaptive histogram equalization
+// Divides image into grid_size x grid_size tiles, clips each tile's histogram,
+// and bilinearly interpolates between tile CDFs for smooth output.
 export fn clahe(img, clip_limit = 2.0, grid_size = 8) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    bins = 256
+
+    tile_h = floor(h / grid_size)
+    tile_w = floor(w / grid_size)
+
+    // Build CDFs for each tile in the grid
+    // Store as flat array of CDFs: cdfs[ty * grid_size + tx] = cdf array
+    n_tiles = grid_size * grid_size
+    cdfs = evolve { arr = [], ty = 0 } while (ty < grid_size) {
+        row_cdfs = evolve { ra = arr, tx = 0 } while (tx < grid_size) {
+            r0 = ty * tile_h
+            c0 = tx * tile_w
+            r1 = if (ty == grid_size - 1) { h } else { r0 + tile_h }
+            c1 = if (tx == grid_size - 1) { w } else { c0 + tile_w }
+            tile_hist = _tile_histogram(img, r0, c0, r1, c1, bins)
+            // Compute actual clip threshold based on tile size
+            n_tile_pixels = (r1 - r0) * (c1 - c0)
+            actual_clip = max(1, floor(clip_limit * n_tile_pixels / bins))
+            clipped = _clip_histogram(tile_hist, actual_clip)
+            cdf = _tile_cdf(clipped)
+            ra' = push(ra, cdf)
+            tx' = tx + 1
+        }
+        arr' = row_cdfs.ra
+        ty' = ty + 1
+    }
+
+    // Map each pixel using bilinear interpolation between neighboring tile CDFs
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            val = img[r][c]
+
+            // Find which tile center this pixel is nearest to
+            // Tile centers are at (ty * tile_h + tile_h/2, tx * tile_w + tile_w/2)
+            fy_raw = (r - tile_h / 2) / tile_h
+            fx_raw = (c - tile_w / 2) / tile_w
+
+            ty0 = max(0, min(floor(fy_raw), grid_size - 2))
+            tx0 = max(0, min(floor(fx_raw), grid_size - 2))
+            ty1 = ty0 + 1
+            tx1 = tx0 + 1
+
+            // Interpolation weights
+            fy = min(max(fy_raw - ty0, 0.0), 1.0)
+            fx = min(max(fx_raw - tx0, 0.0), 1.0)
+
+            // Look up CDF values from the four surrounding tile CDFs
+            v00 = _lookup_cdf(cdfs.arr[ty0 * grid_size + tx0], val, bins)
+            v10 = _lookup_cdf(cdfs.arr[ty1 * grid_size + tx0], val, bins)
+            v01 = _lookup_cdf(cdfs.arr[ty0 * grid_size + tx1], val, bins)
+            v11 = _lookup_cdf(cdfs.arr[ty1 * grid_size + tx1], val, bins)
+
+            new_val = _linear_interp(v00, v10, v01, v11, fy, fx)
+            cols' = push(cols, new_val)
+            c' = c + 1
+        }
+        out' = push(out, row.cols)
+        r' = r + 1
+    }
+    result.out
 }
 
-// match_histogram(source, reference) - Match source histogram to reference
+// match_histogram(source, reference) - Histogram matching/specification
+// Transforms source image so its histogram matches the reference image's histogram.
+// Uses CDF-based approach: for each source pixel, find the reference intensity
+// whose CDF value is closest to the source CDF value.
 export fn match_histogram(source, reference) {
-    error("not yet implemented")
+    h = len(source)
+    w = len(source[0])
+    bins = 256
+
+    // Compute CDFs for both images
+    src_hist = histogram(source, bins)
+    ref_hist = histogram(reference, bins)
+    src_cdf = _cumulative_sum(src_hist)
+    ref_cdf = _cumulative_sum(ref_hist)
+
+    // Normalize CDFs to [0, 1]
+    src_total = src_cdf[bins - 1]
+    ref_total = ref_cdf[bins - 1]
+    src_cdf_norm = evolve { out = zeros(bins), i = 0 } while (i < bins) {
+        out' = _set_at(out, i, if (src_total > 0) { src_cdf[i] / src_total } else { 0 })
+        i' = i + 1
+    }
+    ref_cdf_norm = evolve { out = zeros(bins), i = 0 } while (i < bins) {
+        out' = _set_at(out, i, if (ref_total > 0) { ref_cdf[i] / ref_total } else { 0 })
+        i' = i + 1
+    }
+
+    // Build lookup table: for each source bin, find the closest matching reference bin
+    lut = evolve { map = zeros(bins), si = 0 } while (si < bins) {
+        src_val = src_cdf_norm.out[si]
+        // Find reference bin with closest CDF value
+        best = evolve { best_idx = 0, best_diff = abs(ref_cdf_norm.out[0] - src_val), ri = 1 } while (ri < bins) {
+            diff = abs(ref_cdf_norm.out[ri] - src_val)
+            best_idx' = if (diff < best_diff) { ri } else { best_idx }
+            best_diff' = if (diff < best_diff) { diff } else { best_diff }
+            ri' = ri + 1
+        }
+        // Map source bin si to reference bin best.best_idx, scaled back to [0, 1]
+        map' = _set_at(map, si, best.best_idx / (bins - 1))
+        si' = si + 1
+    }
+
+    // Apply the lookup table to each source pixel
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            val = source[r][c]
+            clamped = min(max(val, 0.0), 1.0)
+            idx = min(floor(clamped * bins), bins - 1)
+            cols' = push(cols, lut.map[idx])
+            c' = c + 1
+        }
+        out' = push(out, row.cols)
+        r' = r + 1
+    }
+    result.out
 }

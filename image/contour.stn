@@ -2,36 +2,282 @@
 //
 // Extract contours from binary images and measure shape properties.
 
-// find_contours(binary_img) - Extract object contours
-// Returns array of contours, each contour is an array of [x, y] points
+import sqrt from math
+import argsort from array
+
+// Moore neighborhood: 8 directional offsets (clockwise from top-left)
+// Directions: 0=TL, 1=T, 2=TR, 3=R, 4=BR, 5=B, 6=BL, 7=L
+fn _dr(d) = [  -1, -1, -1,  0,  1,  1,  1,  0][d]
+fn _dc(d) = [  -1,  0,  1,  1,  1,  0, -1, -1][d]
+
+// Check if pixel is foreground (nonzero) and in bounds
+fn _is_fg(img, r, c, h, w) {
+    if (r < 0 || r >= h || c < 0 || c >= w) { return(false) }
+    img[r][c] > 0
+}
+
+// Trace a single contour starting from (sr, sc) using Moore neighborhood tracing
+fn _trace_contour(img, sr, sc, h, w) {
+    // Start backtrack direction: search from the left of start pixel
+    start_dir = 7
+
+    result = evolve { pts = [[sr, sc]], dir = start_dir, cr = sr, cc = sc, steps = 0, done = false } while (!done && steps < h * w * 4) {
+        // Search the Moore neighborhood starting from (dir + 1) % 8
+        search = evolve { found = false, fr = 0, fc = 0, fd = 0, k = 0 } while (!found && k < 8) {
+            d = (dir + 1 + k) % 8
+            nr = cr + _dr(d)
+            nc = cc + _dc(d)
+            if (_is_fg(img, nr, nc, h, w)) {
+                found' = true
+                fr' = nr
+                fc' = nc
+                fd' = d
+            }
+            k' = k + 1
+        }
+        if (!search.found) {
+            done' = true
+        } else {
+            nr = search.fr
+            nc = search.fc
+            nd = search.fd
+            back = (nd + 4) % 8
+            if (nr == sr && nc == sc && steps > 0) {
+                done' = true
+            } else {
+                pts' = push(pts, [nr, nc])
+                cr' = nr
+                cc' = nc
+                dir' = back
+            }
+        }
+        steps' = steps + 1
+    }
+    result.pts
+}
+
+// find_contours(binary_img) - Extract object contours using Moore neighborhood tracing
+// Returns array of contours, each contour is an array of [row, col] points
 export fn find_contours(binary_img) {
-    error("not yet implemented")
+    h = len(binary_img)
+    w = len(binary_img[0])
+
+    // Scan for boundary pixels and trace contours
+    // A boundary pixel is foreground with at least one 4-connected background neighbor
+    result = evolve { contours = [], visited = [], r = 0 } while (r < h) {
+        scan = evolve { cs = contours, vis = visited, c = 0 } while (c < w) {
+            is_fg = binary_img[r][c] > 0
+            has_bg = if (is_fg) {
+                if (r == 0 || r == h - 1 || c == 0 || c == w - 1) { true }
+                else {
+                    binary_img[r - 1][c] == 0 || binary_img[r + 1][c] == 0 ||
+                    binary_img[r][c - 1] == 0 || binary_img[r][c + 1] == 0
+                }
+            } else { false }
+
+            already = if (has_bg) {
+                evolve (found = false) for (v in vis) {
+                    if (v[0] == r && v[1] == c) {
+                        found' = true
+                        break
+                    }
+                }
+            } else { false }
+
+            if (has_bg && !already) {
+                contour = _trace_contour(binary_img, r, c, h, w)
+                new_vis = evolve (vv = vis) for (p in contour) {
+                    vv' = push(vv, p)
+                }
+                cs' = push(cs, contour)
+                vis' = new_vis
+            }
+            c' = c + 1
+        }
+        contours' = scan.cs
+        visited' = scan.vis
+        r' = r + 1
+    }
+    result.contours
 }
 
 // contour_area(contour) - Area enclosed by contour (Shoelace formula)
 export fn contour_area(contour) {
-    error("not yet implemented")
+    n = len(contour)
+    if (n < 3) { return(0) }
+
+    total = evolve (s = 0) for (i in range(n)) {
+        j = (i + 1) % n
+        r0 = contour[i][0]
+        c0 = contour[i][1]
+        r1 = contour[j][0]
+        c1 = contour[j][1]
+        s' = s + (c0 * r1 - c1 * r0)
+    }
+    abs(total) / 2
 }
 
 // contour_perimeter(contour) - Perimeter length of contour
 export fn contour_perimeter(contour) {
-    error("not yet implemented")
+    n = len(contour)
+    if (n < 2) { return(0) }
+
+    evolve (d = 0) for (i in range(n)) {
+        j = (i + 1) % n
+        dr = contour[j][0] - contour[i][0]
+        dc = contour[j][1] - contour[i][1]
+        d' = d + sqrt(dr * dr + dc * dc)
+    }
 }
 
 // bounding_box(contour) - Axis-aligned bounding box
-// Returns {x, y, width, height}
+// Returns {r0, c0, r1, c1}
 export fn bounding_box(contour) {
-    error("not yet implemented")
+    n = len(contour)
+    init_r = contour[0][0]
+    init_c = contour[0][1]
+
+    bounds = evolve { min_r = init_r, max_r = init_r, min_c = init_c, max_c = init_c, i = 1 } while (i < n) {
+        r = contour[i][0]
+        c = contour[i][1]
+        min_r' = min(min_r, r)
+        max_r' = max(max_r, r)
+        min_c' = min(min_c, c)
+        max_c' = max(max_c, c)
+        i' = i + 1
+    }
+    {r0 = bounds.min_r, c0 = bounds.min_c, r1 = bounds.max_r, c1 = bounds.max_c}
 }
 
-// convex_hull(contour) - Convex hull of contour points
-// Returns array of [x, y] points
+// Cross product of vectors OA and OB
+fn _cross(o, a, b) {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+// Cross product using index lookups into parallel r/c arrays
+fn _cross_idx(rs, cs, oi, ai, bi) {
+    (cs[ai] - cs[oi]) * (rs[bi] - rs[oi]) - (rs[ai] - rs[oi]) * (cs[bi] - cs[oi])
+}
+
+// convex_hull(contour) - Convex hull using Andrew's monotone chain algorithm
+// Returns list of [row, col] points in counter-clockwise order
 export fn convex_hull(contour) {
-    error("not yet implemented")
+    n = len(contour)
+    if (n <= 2) { return(contour) }
+
+    // Sort points by col (x), then by row (y) using argsort on a key
+    keys[i] = contour[i][1] * 1000000 + contour[i][0]
+    order = argsort(keys)
+
+    // Build sorted coordinate arrays (parallel r/c so hull can use indices)
+    sorted = evolve { sr = [], sc = [], i = 0 } while (i < n) {
+        sr' = push(sr, contour[order[i]][0])
+        sc' = push(sc, contour[order[i]][1])
+        i' = i + 1
+    }
+    sorted_r = sorted.sr
+    sorted_c = sorted.sc
+
+    // Build lower hull (stores indices into sorted_r/sorted_c)
+    lower = evolve { hull = [], i = 0 } while (i < n) {
+        trimmed = evolve (h = hull) while (len(h) >= 2 && _cross_idx(sorted_r, sorted_c, h[len(h) - 2], h[len(h) - 1], i) <= 0) {
+            h' = slice(h, 0, len(h) - 1)
+        }
+        hull' = push(trimmed, i)
+        i' = i + 1
+    }
+
+    // Build upper hull
+    upper = evolve { hull = [], i = 0 } while (i < n) {
+        pi = n - 1 - i
+        trimmed = evolve (h = hull) while (len(h) >= 2 && _cross_idx(sorted_r, sorted_c, h[len(h) - 2], h[len(h) - 1], pi) <= 0) {
+            h' = slice(h, 0, len(h) - 1)
+        }
+        hull' = push(trimmed, pi)
+        i' = i + 1
+    }
+
+    // Concatenate lower[:-1] and upper[:-1] (both are array<num,1>)
+    lo = slice(lower.hull, 0, len(lower.hull) - 1)
+    hi = slice(upper.hull, 0, len(upper.hull) - 1)
+    idx_list = concat(lo, hi)
+
+    // Convert indices back to [row, col] points
+    result = evolve { out = [], k = 0 } while (k < len(idx_list)) {
+        out' = push(out, [sorted_r[idx_list[k]], sorted_c[idx_list[k]]])
+        k' = k + 1
+    }
+    result.out
 }
 
-// region_props(labels, img) - Measure properties of labeled regions
-// Returns array of {label, area, centroid, bbox, mean_intensity}
-export fn region_props(labels, img) {
-    error("not yet implemented")
+// region_props(labeled_img) - Compute properties of labeled regions
+// Returns list of records {label, area, centroid, bbox}
+export fn region_props(labeled_img) {
+    h = len(labeled_img)
+    w = len(labeled_img[0])
+
+    // Accumulate per-label stats: area, sum_r, sum_c, bounding box
+    // Store as parallel numeric arrays for set() compatibility
+    // labels_list: unique label values, areas/sum_rs/sum_cs/min_rs/max_rs/min_cs/max_cs: per-label stats
+    stats = evolve { label_ids = [], areas = [], sum_rs = [], sum_cs = [], min_rs = [], max_rs = [], min_cs = [], max_cs = [], r = 0 } while (r < h) {
+        row_result = evolve { lids = label_ids, ar = areas, sr = sum_rs, sc = sum_cs, mnr = min_rs, mxr = max_rs, mnc = min_cs, mxc = max_cs, c = 0 } while (c < w) {
+            v = labeled_img[r][c]
+            if (v > 0) {
+                // Find this label index
+                search = evolve { found = false, idx = 0, k = 0 } while (!found && k < len(lids)) {
+                    if (lids[k] == v) {
+                        found' = true
+                        idx' = k
+                    }
+                    k' = k + 1
+                }
+                if (search.found) {
+                    ki = search.idx
+                    ar' = set(ar, ki, ar[ki] + 1)
+                    sr' = set(sr, ki, sr[ki] + r)
+                    sc' = set(sc, ki, sc[ki] + c)
+                    mnr' = set(mnr, ki, min(mnr[ki], r))
+                    mxr' = set(mxr, ki, max(mxr[ki], r))
+                    mnc' = set(mnc, ki, min(mnc[ki], c))
+                    mxc' = set(mxc, ki, max(mxc[ki], c))
+                } else {
+                    lids' = push(lids, v)
+                    ar' = push(ar, 1)
+                    sr' = push(sr, r)
+                    sc' = push(sc, c)
+                    mnr' = push(mnr, r)
+                    mxr' = push(mxr, r)
+                    mnc' = push(mnc, c)
+                    mxc' = push(mxc, c)
+                }
+            }
+            c' = c + 1
+        }
+        label_ids' = row_result.lids
+        areas' = row_result.ar
+        sum_rs' = row_result.sr
+        sum_cs' = row_result.sc
+        min_rs' = row_result.mnr
+        max_rs' = row_result.mxr
+        min_cs' = row_result.mnc
+        max_cs' = row_result.mxc
+        r' = r + 1
+    }
+
+    // Convert parallel arrays to output records
+    result[i] = {
+        label = stats.label_ids[i],
+        area = stats.areas[i],
+        centroid = [
+            stats.sum_rs[i] / stats.areas[i],
+            stats.sum_cs[i] / stats.areas[i]
+        ],
+        bbox = {
+            r0 = stats.min_rs[i],
+            c0 = stats.min_cs[i],
+            r1 = stats.max_rs[i],
+            c1 = stats.max_cs[i]
+        }
+    }
+    result
 }

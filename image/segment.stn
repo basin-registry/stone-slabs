@@ -2,25 +2,317 @@
 //
 // Connected components, flood fill, and watershed segmentation.
 
-// connected_components(binary_img, connectivity) - Label connected regions
+import sqrt from math
+
+// connected_components(binary_img, connectivity) - Two-pass connected component labeling
 // connectivity: 4 (default) or 8
 // Returns {labels, count}
 export fn connected_components(binary_img, connectivity = 4) {
-    error("not yet implemented")
+    h = len(binary_img)
+    w = len(binary_img[0])
+
+    // Flatten image to 1D for set() compatibility
+    // labels[r * w + c] = label for pixel (r, c)
+    // parent[i] = union-find parent for label i
+
+    // First pass: assign provisional labels and record equivalences
+    pass1 = evolve { flat_labels = zeros(h * w), parent = [0], next_label = 1, r = 0 } while (r < h) {
+        row_result = evolve { fl = flat_labels, par = parent, nl = next_label, c = 0 } while (c < w) {
+            if (binary_img[r][c] > 0) {
+                // Collect neighbor labels (nested if to prevent WASM eager eval of OOB indices)
+                above = if (r > 0) { if (binary_img[r-1][c] > 0) { fl[(r-1) * w + c] } else { 0 } } else { 0 }
+                left = if (c > 0) { if (binary_img[r][c-1] > 0) { fl[r * w + (c-1)] } else { 0 } } else { 0 }
+                above_left = if (connectivity == 8) { if (r > 0) { if (c > 0) { if (binary_img[r-1][c-1] > 0) { fl[(r-1) * w + (c-1)] } else { 0 } } else { 0 } } else { 0 } } else { 0 }
+                above_right = if (connectivity == 8) { if (r > 0) { if (c < w - 1) { if (binary_img[r-1][c+1] > 0) { fl[(r-1) * w + (c+1)] } else { 0 } } else { 0 } } else { 0 } } else { 0 }
+
+                // Gather nonzero neighbor labels
+                neighbors = evolve (ns = []) {
+                    ns1 = if (above > 0) { push(ns, above) } else { ns }
+                    ns2 = if (left > 0) { push(ns1, left) } else { ns1 }
+                    ns3 = if (above_left > 0) { push(ns2, above_left) } else { ns2 }
+                    ns' = if (above_right > 0) { push(ns3, above_right) } else { ns3 }
+                    break
+                }
+
+                if (len(neighbors) == 0) {
+                    // New label
+                    fl' = set(fl, r * w + c, nl)
+                    par' = push(par, nl)
+                    nl' = nl + 1
+                } else {
+                    // Find minimum neighbor label (using find-root through parent)
+                    min_label = evolve (mn = neighbors[0]) for (nb in neighbors) {
+                        // Find root of nb
+                        root_nb = evolve (rr = nb) while (par[rr] != rr && rr > 0) {
+                            rr' = par[rr]
+                        }
+                        // Find root of current min
+                        root_mn = evolve (rr = mn) while (par[rr] != rr && rr > 0) {
+                            rr' = par[rr]
+                        }
+                        mn' = min(root_nb, root_mn)
+                    }
+
+                    fl' = set(fl, r * w + c, min_label)
+
+                    // Union: point all neighbor roots to min_label
+                    par' = evolve (pp = par) for (nb in neighbors) {
+                        root = evolve (rr = nb) while (pp[rr] != rr && rr > 0) {
+                            rr' = pp[rr]
+                        }
+                        if (root != min_label && root > 0) {
+                            pp' = set(pp, root, min_label)
+                        }
+                    }
+                }
+            }
+            c' = c + 1
+        }
+        flat_labels' = row_result.fl
+        parent' = row_result.par
+        next_label' = row_result.nl
+        r' = r + 1
+    }
+
+    // Flatten parent (path compression): find root for each label
+    n_labels = len(pass1.parent)
+    roots = evolve { rt = zeros(n_labels), i = 0 } while (i < n_labels) {
+        root = evolve (rr = i) while (pass1.parent[rr] != rr && rr > 0) {
+            rr' = pass1.parent[rr]
+        }
+        rt' = set(rt, i, root)
+        i' = i + 1
+    }
+
+    // Relabel: map each root to a compact label 1..N
+    remap = evolve { mapping = zeros(n_labels), count = 0, i = 1 } while (i < n_labels) {
+        root = roots.rt[i]
+        if (root == i) {
+            // This is a root label — assign new compact label
+            mapping' = set(mapping, i, count + 1)
+            count' = count + 1
+        }
+        i' = i + 1
+    }
+
+    // Second pass: replace each label with its compact root label
+    final_flat = evolve { fl = pass1.flat_labels, idx = 0 } while (idx < h * w) {
+        old = fl[idx]
+        if (old > 0) {
+            root = roots.rt[old]
+            fl' = set(fl, idx, remap.mapping[root])
+        }
+        idx' = idx + 1
+    }
+
+    // Unflatten to 2D
+    label_img = evolve { rows = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            cols' = push(cols, final_flat.fl[r * w + c])
+            c' = c + 1
+        }
+        rows' = push(rows, row.cols)
+        r' = r + 1
+    }
+
+    {labels = label_img.rows, count = remap.count}
 }
 
-// flood_fill(img, seed_x, seed_y, new_val, tolerance) - Flood fill from seed point
-export fn flood_fill(img, seed_x, seed_y, new_val, tolerance = 0.0) {
-    error("not yet implemented")
+// flood_fill(img, seed_row, seed_col, new_val, tolerance) - Flood fill from seed point
+// Uses a queue-based approach (BFS). tolerance defaults to 0.
+// Returns filled image.
+export fn flood_fill(img, seed_row, seed_col, new_val, tolerance = 0.0) {
+    h = len(img)
+    w = len(img[0])
+
+    // Flatten to 1D for set() compatibility
+    flat = evolve { f = zeros(h * w), r = 0 } while (r < h) {
+        inner = evolve { ff = f, c = 0 } while (c < w) {
+            ff' = set(ff, r * w + c, img[r][c])
+            c' = c + 1
+        }
+        f' = inner.ff
+        r' = r + 1
+    }
+
+    seed_val = img[seed_row][seed_col]
+
+    // BFS flood fill using flat-index queue (r * w + c)
+    filled = evolve { f = flat.f, queue = [seed_row * w + seed_col], visited = zeros(h * w) } while (len(queue) > 0) {
+        front = queue[0]
+        cr = floor(front / w)
+        cc = front % w
+        rest = slice(queue, 1, len(queue))
+
+        already = visited[front] > 0
+        in_tol = abs(f[front] - seed_val) <= tolerance
+
+        if (!already && in_tol && cr >= 0 && cr < h && cc >= 0 && cc < w) {
+            f' = set(f, front, new_val)
+            visited' = set(visited, front, 1)
+
+            // Add 4-connected neighbors as flat indices
+            q2 = rest
+            q3 = if (cr > 0) { push(q2, (cr - 1) * w + cc) } else { q2 }
+            q4 = if (cr < h - 1) { push(q3, (cr + 1) * w + cc) } else { q3 }
+            q5 = if (cc > 0) { push(q4, cr * w + (cc - 1)) } else { q4 }
+            queue' = if (cc < w - 1) { push(q5, cr * w + (cc + 1)) } else { q5 }
+        } else {
+            queue' = rest
+        }
+    }
+
+    // Unflatten to 2D
+    result = evolve { rows = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            cols' = push(cols, filled.f[r * w + c])
+            c' = c + 1
+        }
+        rows' = push(rows, row.cols)
+        r' = r + 1
+    }
+    result.rows
 }
 
-// watershed(img, markers) - Marker-based watershed segmentation
-// Returns label map (2D array)
+// watershed(img, markers) - Simplified marker-based watershed segmentation
+// Uses gradient magnitude to guide region growing from marker seeds.
+// markers: 2D array same size as img, with positive integers at seed regions, 0 elsewhere.
+// Returns label map (2D array).
 export fn watershed(img, markers) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+
+    // Compute gradient magnitude (simple finite differences)
+    grad = evolve { rows = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            gx = if (c < w - 1) { img[r][c+1] - img[r][c] } else { 0 }
+            gy = if (r < h - 1) { img[r+1][c] - img[r][c] } else { 0 }
+            cols' = push(cols, sqrt(gx * gx + gy * gy))
+            c' = c + 1
+        }
+        rows' = push(rows, row.cols)
+        r' = r + 1
+    }
+
+    // Flatten labels and gradient for efficient set()
+    flat_labels = evolve { f = zeros(h * w), r = 0 } while (r < h) {
+        inner = evolve { ff = f, c = 0 } while (c < w) {
+            ff' = set(ff, r * w + c, markers[r][c])
+            c' = c + 1
+        }
+        f' = inner.ff
+        r' = r + 1
+    }
+
+    flat_grad = evolve { f = zeros(h * w), r = 0 } while (r < h) {
+        inner = evolve { ff = f, c = 0 } while (c < w) {
+            ff' = set(ff, r * w + c, grad.rows[r][c])
+            c' = c + 1
+        }
+        f' = inner.ff
+        r' = r + 1
+    }
+
+    // Initialize queue with all labeled boundary pixels as flat indices
+    init_q = evolve { q = [], r = 0 } while (r < h) {
+        inner = evolve { qq = q, c = 0 } while (c < w) {
+            if (markers[r][c] > 0) {
+                // Nested ifs to prevent WASM eager eval of OOB array indices
+                has_above = if (r > 0) { markers[r-1][c] == 0 } else { false }
+                has_below = if (r < h - 1) { markers[r+1][c] == 0 } else { false }
+                has_left = if (c > 0) { markers[r][c-1] == 0 } else { false }
+                has_right = if (c < w - 1) { markers[r][c+1] == 0 } else { false }
+                has_unlabeled = has_above || has_below || has_left || has_right
+                if (has_unlabeled) {
+                    qq' = push(qq, r * w + c)
+                }
+            }
+            c' = c + 1
+        }
+        q' = inner.qq
+        r' = r + 1
+    }
+
+    // Region growing with flat-index queue
+    grown = evolve { labels = flat_labels.f, queue = init_q.q, iter = 0 } while (len(queue) > 0 && iter < h * w) {
+        front = queue[0]
+        cr = floor(front / w)
+        cc = front % w
+        rest = slice(queue, 1, len(queue))
+        lbl = labels[front]
+
+        // Up neighbor
+        step1_lb = if (cr > 0 && labels[(cr-1) * w + cc] == 0) {
+            set(labels, (cr-1) * w + cc, lbl)
+        } else { labels }
+        step1_q = if (cr > 0 && labels[(cr-1) * w + cc] == 0) {
+            push(rest, (cr - 1) * w + cc)
+        } else { rest }
+
+        // Down neighbor
+        step2_lb = if (cr < h - 1 && step1_lb[(cr+1) * w + cc] == 0) {
+            set(step1_lb, (cr+1) * w + cc, lbl)
+        } else { step1_lb }
+        step2_q = if (cr < h - 1 && step1_lb[(cr+1) * w + cc] == 0) {
+            push(step1_q, (cr + 1) * w + cc)
+        } else { step1_q }
+
+        // Left neighbor
+        step3_lb = if (cc > 0 && step2_lb[cr * w + (cc-1)] == 0) {
+            set(step2_lb, cr * w + (cc-1), lbl)
+        } else { step2_lb }
+        step3_q = if (cc > 0 && step2_lb[cr * w + (cc-1)] == 0) {
+            push(step2_q, cr * w + (cc - 1))
+        } else { step2_q }
+
+        // Right neighbor
+        labels' = if (cc < w - 1 && step3_lb[cr * w + (cc+1)] == 0) {
+            set(step3_lb, cr * w + (cc+1), lbl)
+        } else { step3_lb }
+        queue' = if (cc < w - 1 && step3_lb[cr * w + (cc+1)] == 0) {
+            push(step3_q, cr * w + (cc + 1))
+        } else { step3_q }
+
+        iter' = iter + 1
+    }
+
+    // Unflatten to 2D
+    result = evolve { rows = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            cols' = push(cols, grown.labels[r * w + c])
+            c' = c + 1
+        }
+        rows' = push(rows, row.cols)
+        r' = r + 1
+    }
+    result.rows
 }
 
 // label_to_rgb(labels) - Convert integer label map to RGB visualization
+// Uses a fixed palette of distinct colors per label. Background (0) is black.
 export fn label_to_rgb(labels) {
-    error("not yet implemented")
+    h = len(labels)
+    w = len(labels[0])
+
+    // Predefined palette of 12 distinct colors (R, G, B in [0, 1])
+    pal_r = [0.0, 0.9, 0.2, 0.1, 0.9, 0.9, 0.5, 0.0, 0.6, 0.8, 0.4, 1.0, 0.0]
+    pal_g = [0.0, 0.1, 0.7, 0.4, 0.9, 0.5, 0.0, 0.8, 0.3, 0.6, 0.8, 0.6, 0.5]
+    pal_b = [0.0, 0.1, 0.2, 0.9, 0.1, 0.0, 0.8, 0.6, 0.9, 0.2, 0.1, 0.0, 0.9]
+    n_colors = len(pal_r) - 1
+
+    result = evolve { rows = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], c = 0 } while (c < w) {
+            lbl = labels[r][c]
+            if (lbl == 0) {
+                cols' = push(cols, [0.0, 0.0, 0.0])
+            } else {
+                idx = ((lbl - 1) % n_colors) + 1
+                cols' = push(cols, [pal_r[idx], pal_g[idx], pal_b[idx]])
+            }
+            c' = c + 1
+        }
+        rows' = push(rows, row.cols)
+        r' = r + 1
+    }
+    result.rows
 }

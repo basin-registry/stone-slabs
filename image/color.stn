@@ -11,42 +11,300 @@ export fn rgb_to_gray(img) {
     gray
 }
 
+// Helper: convert a single RGB pixel to HSV
+// Returns [H, S, V] where H in [0,360], S and V in [0,1]
+fn _pixel_rgb_to_hsv(r, g, b) {
+    cmax = max(r, max(g, b))
+    cmin = min(r, min(g, b))
+    delta = cmax - cmin
+
+    v = cmax
+    s = if (cmax == 0) { 0.0 } else { delta / cmax }
+    h_raw = if (delta == 0) {
+        0.0
+    } elif (cmax == r) {
+        60.0 * ((g - b) / delta)
+    } elif (cmax == g) {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    }
+    h = if (h_raw < 0) { h_raw + 360.0 } else { h_raw }
+    [h, s, v]
+}
+
+// Helper: convert a single HSV pixel to RGB
+// H in [0,360], S and V in [0,1]
+fn _pixel_hsv_to_rgb(h, s, v) {
+    c = v * s
+    h2 = h / 60.0
+    // x = c * (1 - |h2 mod 2 - 1|)
+    h_mod2 = h2 - 2.0 * floor(h2 / 2.0)
+    x = c * (1.0 - abs(h_mod2 - 1.0))
+    m = v - c
+
+    rgb1 = if (h2 < 1.0) {
+        [c, x, 0.0]
+    } elif (h2 < 2.0) {
+        [x, c, 0.0]
+    } elif (h2 < 3.0) {
+        [0.0, c, x]
+    } elif (h2 < 4.0) {
+        [0.0, x, c]
+    } elif (h2 < 5.0) {
+        [x, 0.0, c]
+    } else {
+        [c, 0.0, x]
+    }
+    [rgb1[0] + m, rgb1[1] + m, rgb1[2] + m]
+}
+
 // rgb_to_hsv(img) - Convert RGB to HSV color space
+// H in [0, 360], S and V in [0, 1]
 export fn rgb_to_hsv(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            hsv = _pixel_rgb_to_hsv(p[0], p[1], p[2])
+            row_out' = push(row_out, hsv)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // hsv_to_rgb(img) - Convert HSV to RGB color space
 export fn hsv_to_rgb(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            rgb = _pixel_hsv_to_rgb(p[0], p[1], p[2])
+            row_out' = push(row_out, rgb)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
-// rgb_to_lab(img) - Convert RGB to CIE L*a*b* (perceptually uniform)
-export fn rgb_to_lab(img) {
-    error("not yet implemented")
+// Helper: sRGB gamma linearization (inverse companding)
+// Convert sRGB [0,1] to linear RGB [0,1]
+fn _srgb_to_linear(v) {
+    if (v <= 0.04045) { v / 12.92 } else { pow((v + 0.055) / 1.055, 2.4) }
 }
 
-// lab_to_rgb(img) - Convert CIE L*a*b* to RGB
-export fn lab_to_rgb(img) {
-    error("not yet implemented")
+// Helper: linear RGB to sRGB gamma companding
+fn _linear_to_srgb(v) {
+    if (v <= 0.0031308) { 12.92 * v } else { 1.055 * pow(v, 1.0 / 2.4) - 0.055 }
 }
 
-// rgb_to_xyz(img) - Convert RGB to CIE XYZ (intermediate for Lab)
+// Helper: convert one linear RGB pixel to XYZ using sRGB/D65 matrix
+fn _pixel_rgb_to_xyz(r, g, b) {
+    // sRGB to XYZ (D65) matrix
+    x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b
+    y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
+    z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b
+    [x, y, z]
+}
+
+// Helper: convert one XYZ pixel to linear RGB using D65 inverse matrix
+fn _pixel_xyz_to_rgb(x, y, z) {
+    r =  3.2404542 * x - 1.5371385 * y - 0.4985314 * z
+    g = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z
+    b =  0.0556434 * x - 0.2040259 * y + 1.0572252 * z
+    [r, g, b]
+}
+
+// rgb_to_xyz(img) - Convert sRGB to CIE XYZ (D65 illuminant)
+// First linearizes sRGB, then applies the sRGB->XYZ matrix
 export fn rgb_to_xyz(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            lr = _srgb_to_linear(p[0])
+            lg = _srgb_to_linear(p[1])
+            lb = _srgb_to_linear(p[2])
+            xyz = _pixel_rgb_to_xyz(lr, lg, lb)
+            row_out' = push(row_out, xyz)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
-// xyz_to_rgb(img) - Convert CIE XYZ to RGB
+// xyz_to_rgb(img) - Convert CIE XYZ to sRGB (D65 illuminant)
+// Applies XYZ->linear RGB matrix, then sRGB gamma companding
 export fn xyz_to_rgb(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            lin = _pixel_xyz_to_rgb(p[0], p[1], p[2])
+            sr = _linear_to_srgb(min(max(lin[0], 0.0), 1.0))
+            sg = _linear_to_srgb(min(max(lin[1], 0.0), 1.0))
+            sb = _linear_to_srgb(min(max(lin[2], 0.0), 1.0))
+            row_out' = push(row_out, [sr, sg, sb])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
-// rgb_to_ycbcr(img) - Convert RGB to YCbCr (JPEG/video color space)
+// D65 reference white point
+fn _d65_xn() { 0.95047 }
+fn _d65_yn() { 1.00000 }
+fn _d65_zn() { 1.08883 }
+
+// Helper: CIE Lab f function
+fn _lab_f(t) {
+    if (t > 0.008856) {
+        pow(t, 1.0 / 3.0)
+    } else {
+        7.787 * t + 16.0 / 116.0
+    }
+}
+
+// Helper: inverse CIE Lab f function
+fn _lab_f_inv(t) {
+    if (t > 0.206897) {
+        t * t * t
+    } else {
+        (t - 16.0 / 116.0) / 7.787
+    }
+}
+
+// Helper: convert one XYZ pixel to L*a*b*
+fn _pixel_xyz_to_lab(x, y, z) {
+    fx = _lab_f(x / _d65_xn())
+    fy = _lab_f(y / _d65_yn())
+    fz = _lab_f(z / _d65_zn())
+    l = 116.0 * fy - 16.0
+    a = 500.0 * (fx - fy)
+    b = 200.0 * (fy - fz)
+    [l, a, b]
+}
+
+// Helper: convert one L*a*b* pixel to XYZ
+fn _pixel_lab_to_xyz(l, a, b) {
+    fy = (l + 16.0) / 116.0
+    fx = a / 500.0 + fy
+    fz = fy - b / 200.0
+    x = _d65_xn() * _lab_f_inv(fx)
+    y = _d65_yn() * _lab_f_inv(fy)
+    z = _d65_zn() * _lab_f_inv(fz)
+    [x, y, z]
+}
+
+// rgb_to_lab(img) - Convert sRGB to CIE L*a*b*
+// Converts through XYZ as intermediate: sRGB -> linear RGB -> XYZ -> L*a*b*
+// L in [0, 100], a and b approximately [-128, 127]
+export fn rgb_to_lab(img) {
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            // sRGB to linear
+            lr = _srgb_to_linear(p[0])
+            lg = _srgb_to_linear(p[1])
+            lb = _srgb_to_linear(p[2])
+            // linear RGB to XYZ
+            xyz = _pixel_rgb_to_xyz(lr, lg, lb)
+            // XYZ to Lab
+            lab = _pixel_xyz_to_lab(xyz[0], xyz[1], xyz[2])
+            row_out' = push(row_out, lab)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
+}
+
+// lab_to_rgb(img) - Convert CIE L*a*b* to sRGB
+// Converts through XYZ as intermediate: L*a*b* -> XYZ -> linear RGB -> sRGB
+export fn lab_to_rgb(img) {
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            // Lab to XYZ
+            xyz = _pixel_lab_to_xyz(p[0], p[1], p[2])
+            // XYZ to linear RGB
+            lin = _pixel_xyz_to_rgb(xyz[0], xyz[1], xyz[2])
+            // Linear to sRGB with clamping
+            sr = _linear_to_srgb(min(max(lin[0], 0.0), 1.0))
+            sg = _linear_to_srgb(min(max(lin[1], 0.0), 1.0))
+            sb = _linear_to_srgb(min(max(lin[2], 0.0), 1.0))
+            row_out' = push(row_out, [min(max(sr, 0.0), 1.0), min(max(sg, 0.0), 1.0), min(max(sb, 0.0), 1.0)])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
+}
+
+// rgb_to_ycbcr(img) - Convert RGB to YCbCr using ITU-R BT.601
+// Y in [0, 1], Cb and Cr approximately [−0.5, 0.5]
 export fn rgb_to_ycbcr(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            pr = p[0]
+            pg = p[1]
+            pb = p[2]
+            y  =  0.299    * pr + 0.587    * pg + 0.114    * pb
+            cb = -0.168736 * pr - 0.331264 * pg + 0.500    * pb
+            cr =  0.500    * pr - 0.418688 * pg - 0.081312 * pb
+            row_out' = push(row_out, [y, cb, cr])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
-// ycbcr_to_rgb(img) - Convert YCbCr to RGB
+// ycbcr_to_rgb(img) - Convert YCbCr to RGB using ITU-R BT.601
 export fn ycbcr_to_rgb(img) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { row_out = [], c = 0 } while (c < w) {
+            p = img[r][c]
+            y  = p[0]
+            cb = p[1]
+            cr = p[2]
+            r_val = y + 1.402    * cr
+            g_val = y - 0.344136 * cb - 0.714136 * cr
+            b_val = y + 1.772    * cb
+            row_out' = push(row_out, [
+                min(max(r_val, 0.0), 1.0),
+                min(max(g_val, 0.0), 1.0),
+                min(max(b_val, 0.0), 1.0)
+            ])
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }

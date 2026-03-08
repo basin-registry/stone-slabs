@@ -2,6 +2,9 @@
 //
 // Convert grayscale images to binary using global or adaptive methods.
 
+import exp from math
+import histogram from image/histogram
+
 // threshold(img, value, mode) - Global thresholding
 // mode: "binary" (default), "binary_inv", "trunc", "tozero", "tozero_inv"
 export fn threshold(img, value, mode = "binary") {
@@ -21,14 +24,106 @@ export fn threshold(img, value, mode = "binary") {
 }
 
 // otsu(img) - Otsu's automatic thresholding
+// Finds the threshold that minimizes intra-class variance (equivalently,
+// maximizes inter-class variance) using the image histogram.
 // Returns {binary, threshold} where threshold is the auto-computed value
 export fn otsu(img) {
-    error("not yet implemented")
+    bins = 256
+    h = len(img)
+    w = len(img[0])
+    n_pixels = h * w
+
+    hist = histogram(img, bins)
+
+    // Compute total mean intensity
+    total_mean = evolve { s = 0, i = 0 } while (i < bins) {
+        s' = s + i * hist[i]
+        i' = i + 1
+    }
+
+    // Find threshold that maximizes inter-class variance
+    // sigma_b^2(t) = [mean_total * w0(t) - mean_cumul(t)]^2 / [w0(t) * (1 - w0(t))]
+    best = evolve { best_t = 0, best_var = 0, w0 = 0, sum0 = 0, t = 0 } while (t < bins) {
+        w0_new = w0 + hist[t]
+        sum0_new = sum0 + t * hist[t]
+        w1 = n_pixels - w0_new
+
+        // Only compute variance if both classes are non-empty
+        result = if (w0_new > 0 && w1 > 0) {
+            mean0 = sum0_new / w0_new
+            mean1 = (total_mean.s - sum0_new) / w1
+            diff = mean0 - mean1
+            var_between = w0_new * w1 * diff * diff
+            if (var_between > best_var) {
+                { bt = t, bv = var_between }
+            } else {
+                { bt = best_t, bv = best_var }
+            }
+        } else {
+            { bt = best_t, bv = best_var }
+        }
+
+        best_t' = result.bt
+        best_var' = result.bv
+        w0' = w0_new
+        sum0' = sum0_new
+        t' = t + 1
+    }
+
+    // Convert bin index back to [0, 1] intensity range
+    thresh_val = best.best_t / (bins - 1)
+
+    // Apply threshold
+    binary[i][j] = if (img[i][j] > thresh_val) { 1.0 } else { 0.0 }
+    {binary = binary, threshold = thresh_val}
 }
 
 // adaptive_threshold(img, block_size, c, method) - Local adaptive thresholding
+// For each pixel, computes a local threshold from the block_size x block_size
+// neighborhood. The pixel is set to 1.0 if it exceeds (local_mean - c).
 // method: "mean" (default) or "gaussian"
 // c: constant subtracted from the local mean/gaussian
 export fn adaptive_threshold(img, block_size = 11, c = 0.02, method = "mean") {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    half = floor(block_size / 2)
+
+    // Build the result by computing local mean for each pixel
+    result = evolve { out = [], r = 0 } while (r < h) {
+        row = evolve { cols = [], col = 0 } while (col < w) {
+            // Compute local mean over the block_size x block_size neighborhood
+            local = evolve { s = 0, count = 0, kr = -half } while (kr <= half) {
+                inner = evolve { si = s, ci = count, kc = -half } while (kc <= half) {
+                    nr = r + kr
+                    nc = col + kc
+                    // Clamp to image boundaries (replicate border)
+                    sr = min(max(nr, 0), h - 1)
+                    sc = min(max(nc, 0), w - 1)
+
+                    weight = if (method == "gaussian") {
+                        // Approximate Gaussian weight: exp(-(kr^2 + kc^2) / (2 * sigma^2))
+                        // sigma ~ block_size / 6
+                        sigma = block_size / 6
+                        exp(-(kr * kr + kc * kc) / (2 * sigma * sigma))
+                    } else { 1 }
+
+                    si' = si + img[sr][sc] * weight
+                    ci' = ci + weight
+                    kc' = kc + 1
+                }
+                s' = inner.si
+                count' = inner.ci
+                kr' = kr + 1
+            }
+
+            local_mean = local.s / local.count
+            thresh = local_mean - c
+            pixel_val = if (img[r][col] > thresh) { 1.0 } else { 0.0 }
+            cols' = push(cols, pixel_val)
+            col' = col + 1
+        }
+        out' = push(out, row.cols)
+        r' = r + 1
+    }
+    result.out
 }

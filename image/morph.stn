@@ -4,43 +4,224 @@
 // kernel: "square" (default), "cross", "disk", or a custom 2D array.
 
 // erode(img, kernel, size) - Morphological erosion
+// For each pixel, take minimum over the structuring element neighborhood.
 export fn erode(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    half = floor(size / 2)
+
+    result = evolve { out = [], r = 0 } while (r < rows) {
+        row = evolve { row_out = [], c = 0 } while (c < cols) {
+            // Find min value in size x size neighborhood
+            val = evolve { v = img[r][c], dr = -half } while (dr <= half) {
+                inner = evolve { vv = v, dc = -half } while (dc <= half) {
+                    nr = r + dr
+                    nc = c + dc
+                    vv' = if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                        min(vv, img[nr][nc])
+                    } else { vv }
+                    dc' = dc + 1
+                }
+                v' = inner.vv
+                dr' = dr + 1
+            }
+            row_out' = push(row_out, val.v)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // dilate(img, kernel, size) - Morphological dilation
+// For each pixel, take maximum over the structuring element neighborhood.
 export fn dilate(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    half = floor(size / 2)
+
+    result = evolve { out = [], r = 0 } while (r < rows) {
+        row = evolve { row_out = [], c = 0 } while (c < cols) {
+            // Find max value in size x size neighborhood
+            val = evolve { v = img[r][c], dr = -half } while (dr <= half) {
+                inner = evolve { vv = v, dc = -half } while (dc <= half) {
+                    nr = r + dr
+                    nc = c + dc
+                    vv' = if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                        max(vv, img[nr][nc])
+                    } else { vv }
+                    dc' = dc + 1
+                }
+                v' = inner.vv
+                dr' = dr + 1
+            }
+            row_out' = push(row_out, val.v)
+            c' = c + 1
+        }
+        out' = push(out, row.row_out)
+        r' = r + 1
+    }
+    result.out
 }
 
 // opening(img, kernel, size) - Erosion followed by dilation (removes small objects)
 export fn opening(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    dilate(erode(img, kernel, size), kernel, size)
 }
 
 // closing(img, kernel, size) - Dilation followed by erosion (fills small holes)
 export fn closing(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    erode(dilate(img, kernel, size), kernel, size)
 }
 
 // morph_gradient(img, kernel, size) - Morphological gradient (dilate - erode)
+// Highlights edges by computing the difference between dilation and erosion.
 export fn morph_gradient(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    d = dilate(img, kernel, size)
+    e = erode(img, kernel, size)
+    result[i][j] = d[i][j] - e[i][j]
+    result
 }
 
 // top_hat(img, kernel, size) - Top-hat transform (img - opening)
-// Extracts small bright regions
+// Extracts small bright regions on a dark background.
 export fn top_hat(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    o = opening(img, kernel, size)
+    result[i][j] = img[i][j] - o[i][j]
+    result
 }
 
 // black_hat(img, kernel, size) - Black-hat transform (closing - img)
-// Extracts small dark regions
+// Extracts small dark regions on a bright background.
 export fn black_hat(img, kernel = "square", size = 3) {
-    error("not yet implemented")
+    c = closing(img, kernel, size)
+    result[i][j] = c[i][j] - img[i][j]
+    result
 }
 
 // skeleton(img) - Morphological skeletonization (reduce to 1-pixel width)
+// Uses simplified Zhang-Suen thinning: iteratively removes border pixels
+// that can be removed without breaking connectivity, until convergence.
 export fn skeleton(img) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+
+    // Binarize the input: anything > 0.5 is foreground (1), else background (0)
+    bin[i][j] = if (img[i][j] > 0.5) { 1.0 } else { 0.0 }
+
+    // Helper to count non-zero neighbors (8-connected) for pixel at (r, c)
+    // Neighbors in order: P2=N, P3=NE, P4=E, P5=SE, P6=S, P7=SW, P8=W, P9=NW
+    fn get_neighbors(g, r, c) {
+        p2 = if (r - 1 >= 0) { g[r - 1][c] } else { 0.0 }
+        p3 = if (r - 1 >= 0 && c + 1 < cols) { g[r - 1][c + 1] } else { 0.0 }
+        p4 = if (c + 1 < cols) { g[r][c + 1] } else { 0.0 }
+        p5 = if (r + 1 < rows && c + 1 < cols) { g[r + 1][c + 1] } else { 0.0 }
+        p6 = if (r + 1 < rows) { g[r + 1][c] } else { 0.0 }
+        p7 = if (r + 1 < rows && c - 1 >= 0) { g[r + 1][c - 1] } else { 0.0 }
+        p8 = if (c - 1 >= 0) { g[r][c - 1] } else { 0.0 }
+        p9 = if (r - 1 >= 0 && c - 1 >= 0) { g[r - 1][c - 1] } else { 0.0 }
+        [p2, p3, p4, p5, p6, p7, p8, p9]
+    }
+
+    // Count non-zero neighbors
+    fn count_nonzero(nb) {
+        s = evolve { cnt = 0, k = 0 } while (k < 8) {
+            cnt' = if (nb[k] > 0.0) { cnt + 1 } else { cnt }
+            k' = k + 1
+        }
+        s.cnt
+    }
+
+    // Count 0->1 transitions in the ordered sequence P2..P9,P2
+    fn count_transitions(nb) {
+        t = evolve { cnt = 0, k = 0 } while (k < 8) {
+            next_k = if (k == 7) { 0 } else { k + 1 }
+            cnt' = if (nb[k] == 0.0 && nb[next_k] > 0.0) { cnt + 1 } else { cnt }
+            k' = k + 1
+        }
+        t.cnt
+    }
+
+    // Iterate until no more pixels are removed
+    state = evolve { g = bin, changed = 1 } while (changed > 0) {
+        // Sub-iteration 1: mark pixels for removal
+        pass1 = evolve { marks = [], r = 0 } while (r < rows) {
+            row_marks = evolve { mrow = [], c = 0 } while (c < cols) {
+                remove = if (g[r][c] > 0.0 && r > 0 && r < rows - 1 && c > 0 && c < cols - 1) {
+                    nb = get_neighbors(g, r, c)
+                    b = count_nonzero(nb)
+                    a = count_transitions(nb)
+                    p2 = nb[0]
+                    p4 = nb[2]
+                    p6 = nb[4]
+                    p8 = nb[6]
+                    // Conditions for sub-iteration 1
+                    if (b >= 2 && b <= 6 && a == 1 && p2 * p4 * p6 == 0.0 && p4 * p6 * p8 == 0.0) {
+                        1.0
+                    } else { 0.0 }
+                } else { 0.0 }
+                mrow' = push(mrow, remove)
+                c' = c + 1
+            }
+            marks' = push(marks, row_marks.mrow)
+            r' = r + 1
+        }
+
+        // Apply pass 1 removals
+        g1_result = evolve { g1 = [], cnt1 = 0, r = 0 } while (r < rows) {
+            grow = evolve { gr = [], c = 0 } while (c < cols) {
+                gr' = push(gr, if (pass1.marks[r][c] > 0.0) { 0.0 } else { g[r][c] })
+                c' = c + 1
+            }
+            g1' = push(g1, grow.gr)
+            cnt1' = cnt1 + evolve (rc = 0) for (v in pass1.marks[r]) {
+                rc' = if (v > 0.0) { rc + 1 } else { rc }
+            }
+            r' = r + 1
+        }
+        g_mid = g1_result.g1
+        removed1 = g1_result.cnt1
+
+        // Sub-iteration 2: mark pixels for removal
+        pass2 = evolve { marks = [], r = 0 } while (r < rows) {
+            row_marks = evolve { mrow = [], c = 0 } while (c < cols) {
+                remove = if (g_mid[r][c] > 0.0 && r > 0 && r < rows - 1 && c > 0 && c < cols - 1) {
+                    nb = get_neighbors(g_mid, r, c)
+                    b = count_nonzero(nb)
+                    a = count_transitions(nb)
+                    p2 = nb[0]
+                    p4 = nb[2]
+                    p6 = nb[4]
+                    p8 = nb[6]
+                    // Conditions for sub-iteration 2
+                    if (b >= 2 && b <= 6 && a == 1 && p2 * p4 * p8 == 0.0 && p2 * p6 * p8 == 0.0) {
+                        1.0
+                    } else { 0.0 }
+                } else { 0.0 }
+                mrow' = push(mrow, remove)
+                c' = c + 1
+            }
+            marks' = push(marks, row_marks.mrow)
+            r' = r + 1
+        }
+
+        // Apply pass 2 removals
+        g2_result = evolve { g2 = [], cnt2 = 0, r = 0 } while (r < rows) {
+            grow = evolve { gr = [], c = 0 } while (c < cols) {
+                gr' = push(gr, if (pass2.marks[r][c] > 0.0) { 0.0 } else { g_mid[r][c] })
+                c' = c + 1
+            }
+            g2' = push(g2, grow.gr)
+            cnt2' = cnt2 + evolve (rc = 0) for (v in pass2.marks[r]) {
+                rc' = if (v > 0.0) { rc + 1 } else { rc }
+            }
+            r' = r + 1
+        }
+
+        g' = g2_result.g2
+        changed' = removed1 + g2_result.cnt2
+    }
+
+    state.g
 }

@@ -10,8 +10,6 @@
 //   show(view({ img = my_image }))
 //   show(view({ img = edges, colormap = "viridis", title = "Edge map" }))
 
-import canvas2d from display
-
 ViewConfig = {
     img: array<num, R>,
     colormap: string = "",
@@ -22,7 +20,12 @@ export fn view(config: ViewConfig) {
     img = config.img
     h = len(img)
     w = len(img[0])
-    canvas2d({
+    // Return canvas2d display record directly.
+    // _type = "canvas2d" is required for terminal dispatch.
+    // We avoid calling canvas2d() because schema lowering doesn't
+    // run on slab module code — only on the main script.
+    {
+        _type = "canvas2d",
         title = config.title,
         width = w,
         height = h,
@@ -36,5 +39,5 @@ export fn view(config: ViewConfig) {
             data = img,
             colormap = config.colormap
         }]
-    })
+    }
 }

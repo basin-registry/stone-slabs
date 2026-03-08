@@ -74,35 +74,121 @@ export fn box_blur(img, size = 3) {
 
 // median_blur(img, size) - Median filter (nonlinear, good for salt-and-pepper noise)
 export fn median_blur(img, size = 3) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    half = floor(size / 2)
+
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            // Collect values in size x size window
+            window = evolve { win = [], ki = 0 } while (ki < size) {
+                inner = evolve { w2 = win, kj = 0 } while (kj < size) {
+                    yi = i + ki - half
+                    xi = j + kj - half
+                    w2' = if (yi >= 0 && yi < h && xi >= 0 && xi < w) {
+                        push(w2, img[yi][xi])
+                    } else {
+                        push(w2, 0)
+                    }
+                    kj' = kj + 1
+                }
+                win' = inner.w2
+                ki' = ki + 1
+            }
+            sorted_w = sort(window.win)
+            mid = floor(len(sorted_w) / 2)
+            cols' = push(cols, sorted_w[mid])
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
 }
 
 // bilateral(img, d, sigma_color, sigma_space) - Edge-preserving bilateral filter
 export fn bilateral(img, d = 5, sigma_color = 0.1, sigma_space = 1.5) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    half = floor(d / 2)
+
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            center = img[i][j]
+            // Weighted average over d x d window
+            acc = evolve { wsum = 0, wt = 0, ki = 0 } while (ki < d) {
+                inner = evolve { ws = wsum, ww = wt, kj = 0 } while (kj < d) {
+                    yi = i + ki - half
+                    xi = j + kj - half
+                    upd = if (yi >= 0 && yi < h && xi >= 0 && xi < w) {
+                        val = img[yi][xi]
+                        dy = ki - half
+                        dx = kj - half
+                        space_dist = dy * dy + dx * dx
+                        color_dist = (val - center) * (val - center)
+                        weight = exp(-space_dist / (2 * sigma_space * sigma_space)
+                                   - color_dist / (2 * sigma_color * sigma_color))
+                        {s = ws + val * weight, w = ww + weight}
+                    } else {
+                        {s = ws, w = ww}
+                    }
+                    ws' = upd.s
+                    ww' = upd.w
+                    kj' = kj + 1
+                }
+                wsum' = inner.ws
+                wt' = inner.ww
+                ki' = ki + 1
+            }
+            pixel = if (acc.wt > 0) { acc.wsum / acc.wt } else { center }
+            cols' = push(cols, pixel)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
 }
 
 // sharpen(img, strength) - Laplacian-based sharpening
 export fn sharpen(img, strength = 1.0) {
-    error("not yet implemented")
+    kernel = [[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]]
+    conv2d(img, kernel)
 }
 
 // unsharp_mask(img, sigma, amount, threshold) - Sharpen via blur subtraction
 export fn unsharp_mask(img, sigma = 1.0, amount = 1.0, threshold = 0.0) {
-    error("not yet implemented")
+    blurred = gaussian_blur(img, sigma)
+    h = len(img)
+    w = len(img[0])
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            diff = img[i][j] - blurred[i][j]
+            val = if (abs(diff) >= threshold) {
+                img[i][j] + amount * diff
+            } else {
+                img[i][j]
+            }
+            cols' = push(cols, val)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
 }
 
 // fft2(img) - 2D Fast Fourier Transform (row-wise then column-wise)
 export fn fft2(img) {
-    error("not yet implemented")
+    error("fft2 requires native FFT support")
 }
 
 // ifft2(spectrum) - Inverse 2D FFT
 export fn ifft2(spectrum) {
-    error("not yet implemented")
+    error("ifft2 requires native FFT support")
 }
 
 // fftshift2(spectrum) - Shift zero-frequency component to center
 export fn fftshift2(spectrum) {
-    error("not yet implemented")
+    error("fftshift2 requires native FFT support")
 }

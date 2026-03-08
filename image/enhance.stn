@@ -1,36 +1,150 @@
 // image/enhance — Image Enhancement
 //
 // Brightness, contrast, gamma correction, and normalization.
+// Supports both 2D grayscale and 3D RGB images with values in [0.0, 1.0].
 
 // adjust_gamma(img, gamma) - Power-law (gamma) correction
 // gamma < 1 brightens, gamma > 1 darkens
+// Applies pixel^(1/gamma) to each pixel value
 export fn adjust_gamma(img, gamma = 1.0) {
-    error("not yet implemented")
+    inv = 1.0 / gamma
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = pow(min(max(img[i][j][k], 0.0), 1.0), inv)
+        return(r3)
+    }
+    r2[i][j] = pow(min(max(img[i][j], 0.0), 1.0), inv)
+    r2
 }
 
-// adjust_contrast(img, factor) - Linear contrast adjustment around mean
+// adjust_contrast(img, factor) - Linear contrast adjustment around midpoint 0.5
 // factor > 1 increases contrast, factor < 1 decreases
 export fn adjust_contrast(img, factor = 1.0) {
-    error("not yet implemented")
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = min(max((img[i][j][k] - 0.5) * factor + 0.5, 0.0), 1.0)
+        return(r3)
+    }
+    r2[i][j] = min(max((img[i][j] - 0.5) * factor + 0.5, 0.0), 1.0)
+    r2
 }
 
 // adjust_brightness(img, offset) - Add constant offset to all pixels
+// Result clamped to [0.0, 1.0]
 export fn adjust_brightness(img, offset = 0.0) {
-    error("not yet implemented")
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = min(max(img[i][j][k] + offset, 0.0), 1.0)
+        return(r3)
+    }
+    r2[i][j] = min(max(img[i][j] + offset, 0.0), 1.0)
+    r2
 }
 
 // invert(img) - Invert image (1.0 - pixel for each pixel)
 export fn invert(img) {
-    error("not yet implemented")
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = 1.0 - img[i][j][k]
+        return(r3)
+    }
+    r2[i][j] = 1.0 - img[i][j]
+    r2
 }
 
-// normalize(img) - Stretch pixel range to [0.0, 1.0] based on min/max
+// normalize(img) - Stretch pixel range to [0.0, 1.0] based on global min/max
+// For RGB images, uses a single global min/max across all channels
 export fn normalize(img) {
-    error("not yet implemented")
+    if (is_array(img[0][0])) {
+        // RGB: find global min/max across all channels
+        h = len(img)
+        w = len(img[0])
+        stats = evolve { lo = img[0][0][0], hi = img[0][0][0], r = 0 } while (r < h) {
+            row_stats = evolve { rlo = lo, rhi = hi, c = 0 } while (c < w) {
+                p = img[r][c]
+                v0 = p[0]
+                v1 = p[1]
+                v2 = p[2]
+                cmin = min(v0, min(v1, v2))
+                cmax = max(v0, max(v1, v2))
+                rlo' = min(rlo, cmin)
+                rhi' = max(rhi, cmax)
+                c' = c + 1
+            }
+            lo' = row_stats.rlo
+            hi' = row_stats.rhi
+            r' = r + 1
+        }
+        span = stats.hi - stats.lo
+        safe_span = if (span == 0) { 1.0 } else { span }
+        lo = stats.lo
+        r3[i][j][k] = (img[i][j][k] - lo) / safe_span
+        return(r3)
+    }
+    // Grayscale: find min/max
+    h = len(img)
+    w = len(img[0])
+    stats = evolve { lo = img[0][0], hi = img[0][0], r = 0 } while (r < h) {
+        row_stats = evolve { rlo = lo, rhi = hi, c = 0 } while (c < w) {
+            v = img[r][c]
+            rlo' = min(rlo, v)
+            rhi' = max(rhi, v)
+            c' = c + 1
+        }
+        lo' = row_stats.rlo
+        hi' = row_stats.rhi
+        r' = r + 1
+    }
+    span = stats.hi - stats.lo
+    safe_span = if (span == 0) { 1.0 } else { span }
+    lo = stats.lo
+    r2[i][j] = (img[i][j] - lo) / safe_span
+    r2
 }
 
-// auto_contrast(img, clip_percent) - Percentile-based contrast stretching
-// clip_percent: percentage of pixels to clip at each end
-export fn auto_contrast(img, clip_percent = 1.0) {
-    error("not yet implemented")
+// auto_contrast(img) - Per-channel normalization for RGB images
+// Each channel is independently stretched to [0.0, 1.0]
+// For grayscale images, behaves identically to normalize
+export fn auto_contrast(img) {
+    if (is_array(img[0][0])) {
+        h = len(img)
+        w = len(img[0])
+        // Find min/max for each channel independently
+        stats = evolve { lo0 = img[0][0][0], hi0 = img[0][0][0], lo1 = img[0][0][1], hi1 = img[0][0][1], lo2 = img[0][0][2], hi2 = img[0][0][2], r = 0 } while (r < h) {
+            row_stats = evolve { rlo0 = lo0, rhi0 = hi0, rlo1 = lo1, rhi1 = hi1, rlo2 = lo2, rhi2 = hi2, c = 0 } while (c < w) {
+                p = img[r][c]
+                rlo0' = min(rlo0, p[0])
+                rhi0' = max(rhi0, p[0])
+                rlo1' = min(rlo1, p[1])
+                rhi1' = max(rhi1, p[1])
+                rlo2' = min(rlo2, p[2])
+                rhi2' = max(rhi2, p[2])
+                c' = c + 1
+            }
+            lo0' = row_stats.rlo0
+            hi0' = row_stats.rhi0
+            lo1' = row_stats.rlo1
+            hi1' = row_stats.rhi1
+            lo2' = row_stats.rlo2
+            hi2' = row_stats.rhi2
+            r' = r + 1
+        }
+        span0 = stats.hi0 - stats.lo0
+        span1 = stats.hi1 - stats.lo1
+        span2 = stats.hi2 - stats.lo2
+        s0 = if (span0 == 0) { 1.0 } else { span0 }
+        s1 = if (span1 == 0) { 1.0 } else { span1 }
+        s2 = if (span2 == 0) { 1.0 } else { span2 }
+        result = evolve { out = [], r = 0 } while (r < h) {
+            row = evolve { row_out = [], c = 0 } while (c < w) {
+                p = img[r][c]
+                nr = (p[0] - stats.lo0) / s0
+                ng = (p[1] - stats.lo1) / s1
+                nb = (p[2] - stats.lo2) / s2
+                row_out' = push(row_out, [nr, ng, nb])
+                c' = c + 1
+            }
+            out' = push(out, row.row_out)
+            r' = r + 1
+        }
+        return(result.out)
+    }
+    // Grayscale: fall back to normalize
+    normalize(img)
 }

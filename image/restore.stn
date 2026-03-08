@@ -2,19 +2,204 @@
 //
 // Remove noise and restore degraded images.
 
+import exp from math
+import conv2d from image/filter
+
+// Build h x w 2D array filled with zeroes
+fn _zeros2d(h, w) {
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            cols' = push(cols, 0)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
+}
+
 // denoise_tv(img, weight, max_iter) - Total variation denoising (Chambolle)
+// Minimizes: ||u - img||^2 + weight * TV(u) via Chambolle's projection algorithm.
+// tau = 0.25 (step size, must be <= 0.25 for convergence)
 export fn denoise_tv(img, weight = 0.1, max_iter = 100) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    tau = 0.25
+
+    // Initialize dual variables px, py as zero 2D arrays
+    px_init = _zeros2d(h, w)
+    py_init = _zeros2d(h, w)
+
+    // Iterate Chambolle projection
+    state = evolve { px = px_init, py = py_init, iter = 0 } while (iter < max_iter) {
+        // Compute divergence of p: div_p[i][j] = px[i][j] - px[i-1][j] + py[i][j] - py[i][j-1]
+        div_p = evolve { rows = [], i = 0 } while (i < h) {
+            row = evolve { cols = [], j = 0 } while (j < w) {
+                px_ij = px[i][j]
+                py_ij = py[i][j]
+                px_prev = if (i > 0) { px[i - 1][j] } else { 0 }
+                py_prev = if (j > 0) { py[i][j - 1] } else { 0 }
+                cols' = push(cols, px_ij - px_prev + py_ij - py_prev)
+                j' = j + 1
+            }
+            rows' = push(rows, row.cols)
+            i' = i + 1
+        }
+        div = div_p.rows
+
+        // Compute gradient of (div_p - img/weight) and update p
+        // gx = forward difference in rows (i direction), gy = forward difference in cols (j direction)
+        new_p = evolve { rx = [], ry = [], i = 0 } while (i < h) {
+            row_p = evolve { cx = [], cy = [], j = 0 } while (j < w) {
+                u = div[i][j] - img[i][j] / weight
+                gx = if (i + 1 < h) {
+                    u_next = div[i + 1][j] - img[i + 1][j] / weight
+                    u_next - u
+                } else { 0 }
+                gy = if (j + 1 < w) {
+                    u_next = div[i][j + 1] - img[i][j + 1] / weight
+                    u_next - u
+                } else { 0 }
+                denom = 1 + tau * sqrt(gx * gx + gy * gy)
+                cx' = push(cx, (px[i][j] + tau * gx) / denom)
+                cy' = push(cy, (py[i][j] + tau * gy) / denom)
+                j' = j + 1
+            }
+            rx' = push(rx, row_p.cx)
+            ry' = push(ry, row_p.cy)
+            i' = i + 1
+        }
+        px' = new_p.rx
+        py' = new_p.ry
+        iter' = iter + 1
+    }
+
+    // Compute final divergence from converged dual variables
+    final_div = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            px_ij = state.px[i][j]
+            py_ij = state.py[i][j]
+            px_prev = if (i > 0) { state.px[i - 1][j] } else { 0 }
+            py_prev = if (j > 0) { state.py[i][j - 1] } else { 0 }
+            cols' = push(cols, px_ij - px_prev + py_ij - py_prev)
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    fdiv = final_div.rows
+
+    // Result: img - weight * div_p
+    out = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            cols' = push(cols, img[i][j] - weight * fdiv[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    out.rows
 }
 
 // denoise_nl_means(img, h, patch_size, search_size) - Non-local means denoising
+// For each pixel, computes a weighted average of similar patches in a search window.
 // h: filter strength (higher = more smoothing)
+// patch_size: size of comparison patches (default 5, must be odd)
+// search_size: size of search window (default 11, must be odd)
 export fn denoise_nl_means(img, h = 0.1, patch_size = 5, search_size = 11) {
-    error("not yet implemented")
+    rows = len(img)
+    cols = len(img[0])
+    half_patch = floor(patch_size / 2)
+    half_search = floor(search_size / 2)
+    h_sq = h * h
+
+    result = evolve { out_rows = [], i = 0 } while (i < rows) {
+        out_row = evolve { out_cols = [], j = 0 } while (j < cols) {
+            // Search over neighborhood for similar patches
+            acc = evolve { wsum = 0, wtotal = 0, ni = i - half_search } while (ni <= i + half_search) {
+                inner = evolve { ws = wsum, wt = wtotal, nj = j - half_search } while (nj <= j + half_search) {
+                    upd = if (ni >= 0) { if (ni < rows) { if (nj >= 0) { if (nj < cols) {
+                        // Compute patch distance between (i,j) and (ni,nj)
+                        dist = evolve { d = 0, pi = 0 - half_patch } while (pi <= half_patch) {
+                            inner_d = evolve { dd = d, pj = 0 - half_patch } while (pj <= half_patch) {
+                                r1 = i + pi
+                                c1 = j + pj
+                                r2 = ni + pi
+                                c2 = nj + pj
+                                // Nested ifs to prevent WASM eager eval of OOB indices
+                                dd' = if (r1 >= 0) { if (r1 < rows) { if (c1 >= 0) { if (c1 < cols) { if (r2 >= 0) { if (r2 < rows) { if (c2 >= 0) { if (c2 < cols) {
+                                    diff = img[r1][c1] - img[r2][c2]
+                                    dd + diff * diff
+                                } else { dd } } else { dd } } else { dd } } else { dd } } else { dd } } else { dd } } else { dd } } else { dd }
+                                pj' = pj + 1
+                            }
+                            d' = inner_d.dd
+                            pi' = pi + 1
+                        }
+                        w = exp(0 - dist.d / h_sq)
+                        {s = ws + img[ni][nj] * w, t = wt + w}
+                    } else { {s = ws, t = wt} } } else { {s = ws, t = wt} } } else { {s = ws, t = wt} } } else { {s = ws, t = wt} }
+                    ws' = upd.s
+                    wt' = upd.t
+                    nj' = nj + 1
+                }
+                wsum' = inner.ws
+                wtotal' = inner.wt
+                ni' = ni + 1
+            }
+            pixel = if (acc.wtotal > 0) { acc.wsum / acc.wtotal } else { img[i][j] }
+            out_cols' = push(out_cols, pixel)
+            j' = j + 1
+        }
+        out_rows' = push(out_rows, out_row.out_cols)
+        i' = i + 1
+    }
+    result.out_rows
 }
 
-// wiener_filter(img, psf, noise_var) - Wiener deconvolution (frequency domain)
+// wiener_filter(img, psf, noise_var) - Wiener deconvolution (spatial domain approximation)
 // psf: point spread function (blur kernel)
+// Applies correlation with flipped PSF and regularized blending with original image.
 export fn wiener_filter(img, psf, noise_var = 0.01) {
-    error("not yet implemented")
+    h = len(img)
+    w = len(img[0])
+    kh = len(psf)
+    kw = len(psf[0])
+
+    // Flip PSF 180 degrees (reverse rows and columns) for correlation
+    psf_flipped = evolve { rows = [], i = 0 } while (i < kh) {
+        row = evolve { cols = [], j = 0 } while (j < kw) {
+            cols' = push(cols, psf[kh - 1 - i][kw - 1 - j])
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    flipped = psf_flipped.rows
+
+    // Correlation: convolve image with flipped PSF (spatial deconvolution step)
+    correlated = conv2d(img, flipped)
+
+    // Compute PSF energy (sum of squared PSF values) for regularization
+    psf_energy = evolve (e = 0) for (row in psf) {
+        re = evolve (s = 0) for (v in row) {
+            s' = s + v * v
+        }
+        e' = e + re
+    }
+
+    // Regularization factor: psf_energy / (psf_energy + noise_var)
+    // When noise_var = 0, factor = 1 (pure inverse). As noise grows, factor shrinks.
+    reg = psf_energy / (psf_energy + noise_var)
+
+    // Blend: result = reg * correlated + (1 - reg) * img
+    out = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            cols' = push(cols, reg * correlated[i][j] + (1 - reg) * img[i][j])
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    out.rows
 }
