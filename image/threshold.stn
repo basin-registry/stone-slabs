@@ -1,0 +1,34 @@
+// image/threshold — Thresholding & Binarization
+//
+// Convert grayscale images to binary using global or adaptive methods.
+
+// threshold(img, value, mode) - Global thresholding
+// mode: "binary" (default), "binary_inv", "trunc", "tozero", "tozero_inv"
+export fn threshold(img, value, mode = "binary") {
+    result[i][j] = if (mode == "binary") {
+        if (img[i][j] > value) { 1.0 } else { 0.0 }
+    } elif (mode == "binary_inv") {
+        if (img[i][j] > value) { 0.0 } else { 1.0 }
+    } elif (mode == "trunc") {
+        if (img[i][j] > value) { value } else { img[i][j] }
+    } elif (mode == "tozero") {
+        if (img[i][j] > value) { img[i][j] } else { 0.0 }
+    } else {
+        // tozero_inv
+        if (img[i][j] > value) { 0.0 } else { img[i][j] }
+    }
+    result
+}
+
+// otsu(img) - Otsu's automatic thresholding
+// Returns {binary, threshold} where threshold is the auto-computed value
+export fn otsu(img) {
+    error("not yet implemented")
+}
+
+// adaptive_threshold(img, block_size, c, method) - Local adaptive thresholding
+// method: "mean" (default) or "gaussian"
+// c: constant subtracted from the local mean/gaussian
+export fn adaptive_threshold(img, block_size = 11, c = 0.02, method = "mean") {
+    error("not yet implemented")
+}

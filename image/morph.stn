@@ -1,0 +1,46 @@
+// image/morph — Morphological Operations
+//
+// Binary and grayscale morphology.
+// kernel: "square" (default), "cross", "disk", or a custom 2D array.
+
+// erode(img, kernel, size) - Morphological erosion
+export fn erode(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// dilate(img, kernel, size) - Morphological dilation
+export fn dilate(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// opening(img, kernel, size) - Erosion followed by dilation (removes small objects)
+export fn opening(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// closing(img, kernel, size) - Dilation followed by erosion (fills small holes)
+export fn closing(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// morph_gradient(img, kernel, size) - Morphological gradient (dilate - erode)
+export fn morph_gradient(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// top_hat(img, kernel, size) - Top-hat transform (img - opening)
+// Extracts small bright regions
+export fn top_hat(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// black_hat(img, kernel, size) - Black-hat transform (closing - img)
+// Extracts small dark regions
+export fn black_hat(img, kernel = "square", size = 3) {
+    error("not yet implemented")
+}
+
+// skeleton(img) - Morphological skeletonization (reduce to 1-pixel width)
+export fn skeleton(img) {
+    error("not yet implemented")
+}

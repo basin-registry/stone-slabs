@@ -1,0 +1,39 @@
+// image/transform — Geometric Transformations
+//
+// Resize, rotate, crop, flip, pad, and affine warping.
+
+// resize(img, w, h, method) - Resize image to w x h
+// method: "nearest", "bilinear" (default), "bicubic"
+export fn resize(img, w, h, method = "bilinear") {
+    error("not yet implemented")
+}
+
+// rotate(img, angle, center_x, center_y, fill) - Rotate image
+// angle: degrees, counter-clockwise
+// center: rotation center (-1 = image center)
+// fill: value for pixels outside the original image
+export fn rotate(img, angle, center_x = -1, center_y = -1, fill = 0.0) {
+    error("not yet implemented")
+}
+
+// crop(img, x, y, w, h) - Extract rectangular sub-region
+export fn crop(img, x, y, w, h) {
+    error("not yet implemented")
+}
+
+// flip(img, axis) - Flip image
+// axis: "horizontal" (default), "vertical", "both"
+export fn flip(img, axis = "horizontal") {
+    error("not yet implemented")
+}
+
+// pad(img, top, right, bottom, left, mode, fill) - Pad image borders
+// mode: "constant" (default), "reflect", "wrap"
+export fn pad(img, top, right, bottom, left, mode = "constant", fill = 0.0) {
+    error("not yet implemented")
+}
+
+// warp_affine(img, matrix, out_w, out_h, fill) - Apply 2x3 affine transformation matrix
+export fn warp_affine(img, matrix, out_w, out_h, fill = 0.0) {
+    error("not yet implemented")
+}

@@ -1,0 +1,81 @@
+// image/edge — Edge Detection
+//
+// Gradient-based and multi-stage edge detectors.
+// Input should be 2D grayscale. Returns vary by function.
+
+import sqrt, atan2 from math
+import conv2d from image/filter
+
+// Apply per-pixel binary op on two 2D arrays using evolve loops
+// (workaround for AoA comprehension bug in slab functions)
+fn _map2d_mag(gx, gy) {
+    h = len(gx)
+    w = len(gx[0])
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            a = gx[i][j]
+            b = gy[i][j]
+            cols' = push(cols, sqrt(a * a + b * b))
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
+}
+
+fn _map2d_dir(gx, gy) {
+    h = len(gx)
+    w = len(gx[0])
+    result = evolve { rows = [], i = 0 } while (i < h) {
+        row = evolve { cols = [], j = 0 } while (j < w) {
+            cols' = push(cols, atan2(gy[i][j], gx[i][j]))
+            j' = j + 1
+        }
+        rows' = push(rows, row.cols)
+        i' = i + 1
+    }
+    result.rows
+}
+
+// sobel(img, axis) - Sobel edge detector
+// axis: "both" (default), "x", "y"
+// Returns {magnitude, direction}
+export fn sobel(img, axis = "both") {
+    kx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+    ky = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]]
+    gx = conv2d(img, kx)
+    gy = conv2d(img, ky)
+    {magnitude = _map2d_mag(gx, gy), direction = _map2d_dir(gx, gy)}
+}
+
+// prewitt(img, axis) - Prewitt edge detector
+// Returns {magnitude, direction}
+export fn prewitt(img, axis = "both") {
+    error("not yet implemented")
+}
+
+// scharr(img, axis) - Scharr operator (more accurate than Sobel)
+// Returns {magnitude, direction}
+export fn scharr(img, axis = "both") {
+    error("not yet implemented")
+}
+
+// roberts(img) - Roberts cross operator
+// Returns {magnitude, direction}
+export fn roberts(img) {
+    error("not yet implemented")
+}
+
+// laplacian(img) - Laplacian edge detector (second derivative)
+// Returns 2D array
+export fn laplacian(img) {
+    error("not yet implemented")
+}
+
+// canny(img, low, high, sigma) - Canny multi-stage edge detector
+// low/high: hysteresis thresholds in [0.0, 1.0]
+// Returns binary edge map
+export fn canny(img, low = 0.1, high = 0.3, sigma = 1.0) {
+    error("not yet implemented")
+}

@@ -1,0 +1,37 @@
+// image/contour — Contour Detection & Shape Analysis
+//
+// Extract contours from binary images and measure shape properties.
+
+// find_contours(binary_img) - Extract object contours
+// Returns array of contours, each contour is an array of [x, y] points
+export fn find_contours(binary_img) {
+    error("not yet implemented")
+}
+
+// contour_area(contour) - Area enclosed by contour (Shoelace formula)
+export fn contour_area(contour) {
+    error("not yet implemented")
+}
+
+// contour_perimeter(contour) - Perimeter length of contour
+export fn contour_perimeter(contour) {
+    error("not yet implemented")
+}
+
+// bounding_box(contour) - Axis-aligned bounding box
+// Returns {x, y, width, height}
+export fn bounding_box(contour) {
+    error("not yet implemented")
+}
+
+// convex_hull(contour) - Convex hull of contour points
+// Returns array of [x, y] points
+export fn convex_hull(contour) {
+    error("not yet implemented")
+}
+
+// region_props(labels, img) - Measure properties of labeled regions
+// Returns array of {label, area, centroid, bbox, mean_intensity}
+export fn region_props(labels, img) {
+    error("not yet implemented")
+}

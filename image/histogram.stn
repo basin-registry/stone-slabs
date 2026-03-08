@@ -1,0 +1,24 @@
+// image/histogram — Histogram Operations
+//
+// Compute, equalize, and match image histograms.
+
+// histogram(img, bins) - Compute intensity histogram
+// Returns {counts, edges}
+export fn histogram(img, bins = 256) {
+    error("not yet implemented")
+}
+
+// equalize_hist(img) - Global histogram equalization
+export fn equalize_hist(img) {
+    error("not yet implemented")
+}
+
+// clahe(img, clip_limit, grid_size) - Contrast-limited adaptive histogram equalization
+export fn clahe(img, clip_limit = 2.0, grid_size = 8) {
+    error("not yet implemented")
+}
+
+// match_histogram(source, reference) - Match source histogram to reference
+export fn match_histogram(source, reference) {
+    error("not yet implemented")
+}

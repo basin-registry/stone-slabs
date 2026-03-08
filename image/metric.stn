@@ -1,0 +1,33 @@
+// image/metric — Image Quality Metrics
+//
+// Full-reference metrics comparing two images of the same dimensions.
+
+import log10 from math
+
+// mse(img1, img2) - Mean Squared Error
+export fn mse(img1, img2) {
+    h = len(img1)
+    w = len(img1[0])
+    diff[i][j] = (img1[i][j] - img2[i][j]) ^ 2
+    total = evolve (total = 0) for (row in diff) {
+        rs = evolve (s = 0) for (x in row) {
+            s' = s + x
+        }
+        total' = total + rs
+    }
+    total / (h * w)
+}
+
+// psnr(img1, img2) - Peak Signal-to-Noise Ratio (dB)
+// Higher is better. Uses data range of 1.0 (float images).
+export fn psnr(img1, img2) {
+    err = mse(img1, img2)
+    if (err == 0) { return(100.0) }
+    10 * log10(1.0 / err)
+}
+
+// ssim(img1, img2, window_size, k1, k2) - Structural Similarity Index
+// Returns scalar in [0, 1], higher is better.
+export fn ssim(img1, img2, window_size = 7, k1 = 0.01, k2 = 0.03) {
+    error("not yet implemented")
+}

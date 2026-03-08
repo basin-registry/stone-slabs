@@ -1,0 +1,26 @@
+// image/segment — Image Segmentation
+//
+// Connected components, flood fill, and watershed segmentation.
+
+// connected_components(binary_img, connectivity) - Label connected regions
+// connectivity: 4 (default) or 8
+// Returns {labels, count}
+export fn connected_components(binary_img, connectivity = 4) {
+    error("not yet implemented")
+}
+
+// flood_fill(img, seed_x, seed_y, new_val, tolerance) - Flood fill from seed point
+export fn flood_fill(img, seed_x, seed_y, new_val, tolerance = 0.0) {
+    error("not yet implemented")
+}
+
+// watershed(img, markers) - Marker-based watershed segmentation
+// Returns label map (2D array)
+export fn watershed(img, markers) {
+    error("not yet implemented")
+}
+
+// label_to_rgb(labels) - Convert integer label map to RGB visualization
+export fn label_to_rgb(labels) {
+    error("not yet implemented")
+}

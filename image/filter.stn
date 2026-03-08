@@ -1,0 +1,108 @@
+// image/filter — Spatial Filtering
+//
+// Convolution, blur, sharpening, and frequency domain operations.
+// All filters operate on 2D grayscale arrays unless noted otherwise.
+
+import exp from math
+import ones from linalg
+
+// Compute one output pixel of 2D convolution (internal helper)
+fn conv_pixel(img, kernel, oi, oj) {
+    h = len(img)
+    w = len(img[0])
+    kh = len(kernel)
+    kw = len(kernel[0])
+    py = floor(kh / 2)
+    px = floor(kw / 2)
+
+    outer = evolve { total = 0, ki = 0 } while (ki < kh) {
+        inner = evolve { s = 0, kj = 0 } while (kj < kw) {
+            yi = oi + ki - py
+            xi = oj + kj - px
+            v = if (yi >= 0 && yi < h && xi >= 0 && xi < w) {
+                img[yi][xi] * kernel[ki][kj]
+            } else { 0 }
+            s' = s + v
+            kj' = kj + 1
+        }
+        total' = total + inner.s
+        ki' = ki + 1
+    }
+    outer.total
+}
+
+// conv2d(img, kernel, mode) - 2D convolution
+// mode: "same" (default, output = input size)
+export fn conv2d(img, kernel, mode = "same") {
+    h = len(img)
+    w = len(img[0])
+    rs = range(h)
+    cs = range(w)
+    result[i][j] = conv_pixel(img, kernel, rs[i], cs[j])
+    result
+}
+
+// gaussian_blur(img, sigma, size) - Gaussian blur
+// size=0 auto-computes kernel size from sigma (6*sigma + 1, rounded to odd)
+export fn gaussian_blur(img, sigma = 1.0, size = 0) {
+    k = if (size == 0) { int(2 * ceil(3 * sigma) + 1) } else { size }
+    half = floor(k / 2)
+    idx = range(k)
+
+    // Build Gaussian kernel
+    raw[a][b] = exp(-((idx[a] - half) ^ 2 + (idx[b] - half) ^ 2) / (2 * sigma * sigma))
+
+    // Normalize so kernel sums to 1
+    total = evolve (total = 0) for (row in raw) {
+        rs = evolve (s = 0) for (x in row) {
+            s' = s + x
+        }
+        total' = total + rs
+    }
+    kernel[a][b] = raw[a][b] / total
+
+    conv2d(img, kernel)
+}
+
+// box_blur(img, size) - Box (mean) filter
+export fn box_blur(img, size = 3) {
+    n = size * size
+    o = ones(size, size)
+    kernel[a][b] = o[a][b] / n
+    conv2d(img, kernel, "same")
+}
+
+// median_blur(img, size) - Median filter (nonlinear, good for salt-and-pepper noise)
+export fn median_blur(img, size = 3) {
+    error("not yet implemented")
+}
+
+// bilateral(img, d, sigma_color, sigma_space) - Edge-preserving bilateral filter
+export fn bilateral(img, d = 5, sigma_color = 0.1, sigma_space = 1.5) {
+    error("not yet implemented")
+}
+
+// sharpen(img, strength) - Laplacian-based sharpening
+export fn sharpen(img, strength = 1.0) {
+    error("not yet implemented")
+}
+
+// unsharp_mask(img, sigma, amount, threshold) - Sharpen via blur subtraction
+export fn unsharp_mask(img, sigma = 1.0, amount = 1.0, threshold = 0.0) {
+    error("not yet implemented")
+}
+
+// fft2(img) - 2D Fast Fourier Transform (row-wise then column-wise)
+export fn fft2(img) {
+    error("not yet implemented")
+}
+
+// ifft2(spectrum) - Inverse 2D FFT
+export fn ifft2(spectrum) {
+    error("not yet implemented")
+}
+
+// fftshift2(spectrum) - Shift zero-frequency component to center
+export fn fftshift2(spectrum) {
+    error("not yet implemented")
+}

@@ -1,0 +1,36 @@
+// image/enhance — Image Enhancement
+//
+// Brightness, contrast, gamma correction, and normalization.
+
+// adjust_gamma(img, gamma) - Power-law (gamma) correction
+// gamma < 1 brightens, gamma > 1 darkens
+export fn adjust_gamma(img, gamma = 1.0) {
+    error("not yet implemented")
+}
+
+// adjust_contrast(img, factor) - Linear contrast adjustment around mean
+// factor > 1 increases contrast, factor < 1 decreases
+export fn adjust_contrast(img, factor = 1.0) {
+    error("not yet implemented")
+}
+
+// adjust_brightness(img, offset) - Add constant offset to all pixels
+export fn adjust_brightness(img, offset = 0.0) {
+    error("not yet implemented")
+}
+
+// invert(img) - Invert image (1.0 - pixel for each pixel)
+export fn invert(img) {
+    error("not yet implemented")
+}
+
+// normalize(img) - Stretch pixel range to [0.0, 1.0] based on min/max
+export fn normalize(img) {
+    error("not yet implemented")
+}
+
+// auto_contrast(img, clip_percent) - Percentile-based contrast stretching
+// clip_percent: percentage of pixels to clip at each end
+export fn auto_contrast(img, clip_percent = 1.0) {
+    error("not yet implemented")
+}

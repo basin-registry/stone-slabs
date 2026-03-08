@@ -1,0 +1,20 @@
+// image/restore — Denoising & Restoration
+//
+// Remove noise and restore degraded images.
+
+// denoise_tv(img, weight, max_iter) - Total variation denoising (Chambolle)
+export fn denoise_tv(img, weight = 0.1, max_iter = 100) {
+    error("not yet implemented")
+}
+
+// denoise_nl_means(img, h, patch_size, search_size) - Non-local means denoising
+// h: filter strength (higher = more smoothing)
+export fn denoise_nl_means(img, h = 0.1, patch_size = 5, search_size = 11) {
+    error("not yet implemented")
+}
+
+// wiener_filter(img, psf, noise_var) - Wiener deconvolution (frequency domain)
+// psf: point spread function (blur kernel)
+export fn wiener_filter(img, psf, noise_var = 0.01) {
+    error("not yet implemented")
+}

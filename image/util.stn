@@ -1,0 +1,67 @@
+// image/util — Image Utilities
+//
+// Helper functions for image info, type conversion, and channel operations.
+// Images use [0.0, 1.0] float range by convention.
+
+// width(img) - Number of columns in image
+export fn width(img) = len(img[0])
+
+// height(img) - Number of rows in image
+export fn height(img) = len(img)
+
+// channels(img) - Number of channels (1 for grayscale, 3 for RGB, 4 for RGBA)
+export fn channels(img) {
+    if (is_array(img[0][0])) { return(len(img[0][0])) }
+    1
+}
+
+// to_float(img) - Convert 0-255 integer image to 0.0-1.0 float
+export fn to_float(img) {
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = img[i][j][k] / 255
+        return(r3)
+    }
+    r2[i][j] = img[i][j] / 255
+    r2
+}
+
+// to_uint8(img) - Convert 0.0-1.0 float image to 0-255 integer
+export fn to_uint8(img) {
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = floor(img[i][j][k] * 255)
+        return(r3)
+    }
+    r2[i][j] = floor(img[i][j] * 255)
+    r2
+}
+
+// clamp_pixel(img) - Clamp all pixel values to [0.0, 1.0]
+export fn clamp_pixel(img) {
+    if (is_array(img[0][0])) {
+        r3[i][j][k] = min(max(img[i][j][k], 0.0), 1.0)
+        return(r3)
+    }
+    r2[i][j] = min(max(img[i][j], 0.0), 1.0)
+    r2
+}
+
+// split_channels(img) - Split RGB image into separate 2D arrays
+// Returns {r, g, b}
+export fn split_channels(img) {
+    red[i][j] = img[i][j][0]
+    green[i][j] = img[i][j][1]
+    blue[i][j] = img[i][j][2]
+    {r = red, g = green, b = blue}
+}
+
+// merge_channels(r, g, b) - Merge three 2D grayscale arrays into an RGB image
+export fn merge_channels(r, g, b) {
+    result[i][j] = [r[i][j], g[i][j], b[i][j]]
+    result
+}
+
+// get_channel(img, ch) - Extract a single channel by index (0=R, 1=G, 2=B)
+export fn get_channel(img, ch) {
+    result[i][j] = img[i][j][ch]
+    result
+}

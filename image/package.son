@@ -1,0 +1,11 @@
+name = "image"
+version = "0.1.0"
+entry = "main.stn"
+description = "Image processing: color conversion, filtering, edge detection, morphology, transforms, segmentation, and analysis"
+
+deps = {
+    linalg = "0.1.0"
+    signal = "0.1.0"
+    stats = "0.1.0"
+    display = "0.1.0"
+}

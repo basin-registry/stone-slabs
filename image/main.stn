@@ -1,0 +1,66 @@
+// image — Image Processing
+//
+// Images are 2D arrays (grayscale) or 3D arrays (RGB: height x width x 3).
+// Pixel values are floating point in [0.0, 1.0].
+//
+// Usage:
+//   import image
+//   gray = image.rgb_to_gray(img)
+//   edges = image.canny(gray, 0.1, 0.3)
+//
+//   import gaussian_blur, sobel from image
+//   blurred = gaussian_blur(img, 1.5)
+
+// Viewer
+export view from image/view
+
+// Utilities
+export width, height, channels from image/util
+export to_float, to_uint8, clamp_pixel from image/util
+export split_channels, merge_channels, get_channel from image/util
+
+// Color conversions
+export rgb_to_gray, rgb_to_hsv, hsv_to_rgb from image/color
+export rgb_to_lab, lab_to_rgb, rgb_to_xyz, xyz_to_rgb from image/color
+export rgb_to_ycbcr, ycbcr_to_rgb from image/color
+
+// Filtering
+export conv2d, gaussian_blur, box_blur, median_blur from image/filter
+export bilateral, sharpen, unsharp_mask from image/filter
+export fft2, ifft2, fftshift2 from image/filter
+
+// Edge detection
+export sobel, prewitt, scharr, roberts, laplacian, canny from image/edge
+
+// Thresholding
+export threshold, otsu, adaptive_threshold from image/threshold
+
+// Morphology
+export erode, dilate, opening, closing from image/morph
+export morph_gradient, top_hat, black_hat, skeleton from image/morph
+
+// Geometric transforms
+export resize, rotate, crop, flip, pad, warp_affine from image/transform
+
+// Enhancement
+export adjust_gamma, adjust_contrast, adjust_brightness from image/enhance
+export invert, normalize, auto_contrast from image/enhance
+
+// Histograms
+export histogram, equalize_hist, clahe, match_histogram from image/histogram
+
+// Segmentation
+export connected_components, flood_fill, watershed, label_to_rgb from image/segment
+
+// Contours & shape analysis
+export find_contours, contour_area, contour_perimeter from image/contour
+export bounding_box, convex_hull, region_props from image/contour
+
+// Feature detection
+export harris_corners, hough_line, hough_circle, template_match from image/feature
+
+// Quality metrics
+export mse, psnr, ssim from image/metric
+
+// Restoration
+export denoise_tv, denoise_nl_means, wiener_filter from image/restore

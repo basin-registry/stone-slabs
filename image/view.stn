@@ -1,0 +1,40 @@
+// image/view — Image Viewer
+//
+// Produces a canvas2d display record for viewing image arrays.
+// Images are 2D arrays (grayscale) or 3D arrays (RGB: H x W x 3),
+// values in [0.0, 1.0].
+//
+// Usage:
+//   import view from image
+//   import show from display
+//   show(view({ img = my_image }))
+//   show(view({ img = edges, colormap = "viridis", title = "Edge map" }))
+
+import canvas2d from display
+
+ViewConfig = {
+    img: array<num, R>,
+    colormap: string = "",
+    title: string = ""
+}
+
+export fn view(config: ViewConfig) {
+    img = config.img
+    h = len(img)
+    w = len(img[0])
+    canvas2d({
+        title = config.title,
+        width = w,
+        height = h,
+        origin = "top-left",
+        objects = [{
+            type = "bitmap",
+            x = 0,
+            y = 0,
+            width = w,
+            height = h,
+            data = img,
+            colormap = config.colormap
+        }]
+    })
+}

@@ -1,0 +1,28 @@
+// image/feature — Feature Detection
+//
+// Corner detection, Hough transforms, and template matching.
+
+// harris_corners(img, k, block_size, threshold) - Harris corner detector
+// Returns array of {x, y, response}
+export fn harris_corners(img, k = 0.04, block_size = 3, threshold = 0.01) {
+    error("not yet implemented")
+}
+
+// hough_line(binary_img, threshold) - Hough line detection
+// Returns array of {rho, theta, votes}
+export fn hough_line(binary_img, threshold = 50) {
+    error("not yet implemented")
+}
+
+// hough_circle(binary_img, min_r, max_r, threshold) - Hough circle detection
+// Returns array of {x, y, r, votes}
+export fn hough_circle(binary_img, min_r, max_r, threshold = 50) {
+    error("not yet implemented")
+}
+
+// template_match(img, template, method) - Template matching
+// method: "ncc" (normalized cross-correlation, default) or "ssd" (sum of squared differences)
+// Returns {x, y, score}
+export fn template_match(img, template, method = "ncc") {
+    error("not yet implemented")
+}

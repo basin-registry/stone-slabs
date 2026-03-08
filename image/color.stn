@@ -1,0 +1,52 @@
+// image/color — Color Space Conversions
+//
+// All conversions operate on 3D arrays (height x width x 3) with values in [0.0, 1.0].
+// HSV: H in [0, 360], S and V in [0.0, 1.0].
+// Lab: L in [0, 100], a and b in [-128, 127].
+
+// rgb_to_gray(img) - Convert RGB to grayscale using BT.601 luminance weights
+// Returns 2D array (height x width)
+export fn rgb_to_gray(img) {
+    gray[i][j] = 0.299 * img[i][j][0] + 0.587 * img[i][j][1] + 0.114 * img[i][j][2]
+    gray
+}
+
+// rgb_to_hsv(img) - Convert RGB to HSV color space
+export fn rgb_to_hsv(img) {
+    error("not yet implemented")
+}
+
+// hsv_to_rgb(img) - Convert HSV to RGB color space
+export fn hsv_to_rgb(img) {
+    error("not yet implemented")
+}
+
+// rgb_to_lab(img) - Convert RGB to CIE L*a*b* (perceptually uniform)
+export fn rgb_to_lab(img) {
+    error("not yet implemented")
+}
+
+// lab_to_rgb(img) - Convert CIE L*a*b* to RGB
+export fn lab_to_rgb(img) {
+    error("not yet implemented")
+}
+
+// rgb_to_xyz(img) - Convert RGB to CIE XYZ (intermediate for Lab)
+export fn rgb_to_xyz(img) {
+    error("not yet implemented")
+}
+
+// xyz_to_rgb(img) - Convert CIE XYZ to RGB
+export fn xyz_to_rgb(img) {
+    error("not yet implemented")
+}
+
+// rgb_to_ycbcr(img) - Convert RGB to YCbCr (JPEG/video color space)
+export fn rgb_to_ycbcr(img) {
+    error("not yet implemented")
+}
+
+// ycbcr_to_rgb(img) - Convert YCbCr to RGB
+export fn ycbcr_to_rgb(img) {
+    error("not yet implemented")
+}
