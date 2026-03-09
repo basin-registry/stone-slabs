@@ -11,12 +11,13 @@ import Sketch, Plane, Profile, Query from clay/types
 import XY_PLANE, XZ_PLANE, YZ_PLANE from clay/types
 
 // Import kernel sketch primitives - these handle normalization internally
-import _clay_sketch_new, _clay_sketch_on_face from _clay_kernel
-import _clay_sketch_rect, _clay_sketch_circle, _clay_sketch_ellipse from _clay_kernel
-import _clay_sketch_line, _clay_sketch_arc, _clay_sketch_polyline from _clay_kernel
-import _clay_sketch_polygon, _clay_sketch_slot from _clay_kernel
-import _clay_sketch_close, _clay_sketch_profile from _clay_kernel
-import _clay_sketch_constrain, _clay_sketch_solve from _clay_kernel
+import _clay_sketch_new, _clay_sketch_on_face from clay_kernel
+import _clay_sketch_rect, _clay_sketch_circle, _clay_sketch_ellipse from clay_kernel
+import _clay_sketch_line, _clay_sketch_arc, _clay_sketch_polyline from clay_kernel
+import _clay_sketch_polygon, _clay_sketch_slot from clay_kernel
+import _clay_sketch_close, _clay_sketch_profile from clay_kernel
+import _clay_sketch_constrain, _clay_sketch_solve from clay_kernel
+import _clay_solver_status, _clay_remaining_dof, _clay_sketch_drag from clay_kernel
 
 // =============================================================================
 // SKETCH ENTITY TYPES
@@ -282,6 +283,24 @@ export fn profile(sk: Sketch, selector: string = "first") -> Profile =
 // profiles(sketch) - Extract all closed profiles as array
 export fn profiles(sk: Sketch) =
     _clay_sketch_profile(sk, "all")
+
+// =============================================================================
+// SOLVER STATUS AND DIAGNOSTICS
+// =============================================================================
+
+// solver_status(sketch) - Get solver status after solve()
+// Returns: "well_constrained", "under_constrained", "over_constrained", or "failed"
+export fn solver_status(sk: Sketch) -> string =
+    _clay_solver_status(sk)
+
+// remaining_dof(sketch) - Remaining degrees of freedom after solve
+export fn remaining_dof(sk: Sketch) -> num =
+    _clay_remaining_dof(sk)
+
+// drag(sketch, entity, point_selector, x, y) - Interactive drag point
+// point_selector: "start", "end", "center"
+export fn drag(sk: Sketch, entity_id: num, point_sel: string, x: num, y: num) -> Sketch =
+    _clay_sketch_drag(sk, entity_id, point_sel, x, y)
 
 // =============================================================================
 // CONVENIENCE BUILDERS (Pipe-Friendly)

@@ -7,7 +7,7 @@
 import Feature, Body, Query, ClayStyle from clay/types
 
 // Import kernel primitives - these handle array/record normalization internally
-import _clay_box, _clay_cylinder, _clay_sphere, _clay_cone, _clay_torus from _clay_kernel
+import _clay_box, _clay_cylinder, _clay_sphere, _clay_cone, _clay_torus from clay_kernel
 
 // =============================================================================
 // PRIMITIVE SPECS (Data Schemas)

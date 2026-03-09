@@ -9,12 +9,12 @@
 import Feature, Body, Query, Profile, Sketch, Plane from clay/types
 
 // Import kernel operations - these handle normalization internally
-import _clay_extrude, _clay_revolve from _clay_kernel
-import _clay_fillet, _clay_chamfer, _clay_shell from _clay_kernel
-import _clay_union, _clay_subtract, _clay_intersect from _clay_kernel
-import _clay_union_all, _clay_subtract_all, _clay_intersect_all from _clay_kernel
-import _clay_profile_union, _clay_profile_subtract, _clay_profile_intersect from _clay_kernel
-import _clay_sketch_from_profile, _clay_extrude_sketch from _clay_kernel
+import _clay_extrude, _clay_revolve from clay_kernel
+import _clay_fillet, _clay_chamfer, _clay_shell from clay_kernel
+import _clay_union, _clay_subtract, _clay_intersect from clay_kernel
+import _clay_union_all, _clay_subtract_all, _clay_intersect_all from clay_kernel
+import _clay_profile_union, _clay_profile_subtract, _clay_profile_intersect from clay_kernel
+import _clay_sketch_from_profile, _clay_extrude_sketch from clay_kernel
 
 // =============================================================================
 // EXTRUDE SPECIFICATION
@@ -159,8 +159,8 @@ export fn sketch(plane: Plane, p: Profile) -> Sketch =
     _clay_sketch_from_profile(plane, p)
 
 // extrude(sketch, distance) - Extrude a sketch along its plane normal
-export fn extrude(sk: Sketch, distance: num) -> Feature =
-    _clay_extrude_sketch(sk, distance)
+export fn extrude(sk: Sketch, distance: num = 10) -> Feature =
+    _clay_extrude_sketch(sk, {distance = distance})
 
 // =============================================================================
 // CONVENIENCE FUNCTIONS

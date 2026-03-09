@@ -90,7 +90,7 @@ export count, is_empty, first, last from clay/query
 // VISUALIZATION
 // =============================================================================
 
-import _clay_get_mesh, _clay_get_brep, _clay_init_manifold from _clay_kernel
+import _clay_get_mesh, _clay_get_brep, _clay_init_manifold from clay_kernel
 import Mesh, BrepMesh from draw3d/types
 
 export fn get_mesh(feature: Feature) -> Mesh = _clay_get_mesh(feature.body)

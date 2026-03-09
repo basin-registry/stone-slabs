@@ -10,10 +10,10 @@
 import Feature, Query, Plane, Body from clay/types
 
 // Import kernel query primitives - these handle normalization internally
-import _clay_query_faces, _clay_query_edges, _clay_query_vertices from _clay_kernel
-import _clay_query_edges_of, _clay_query_faces_of from _clay_kernel
-import _clay_filter_query, _clay_query_combine from _clay_kernel
-import _clay_query_count, _clay_query_first, _clay_query_last from _clay_kernel
+import _clay_query_faces, _clay_query_edges, _clay_query_vertices from clay_kernel
+import _clay_query_edges_of, _clay_query_faces_of from clay_kernel
+import _clay_filter_query, _clay_query_combine from clay_kernel
+import _clay_query_count, _clay_query_first, _clay_query_last from clay_kernel
 
 // =============================================================================
 // INTERNAL FILTER HELPER

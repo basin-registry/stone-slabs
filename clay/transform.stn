@@ -10,8 +10,8 @@
 import Feature, Body, Plane from clay/types
 
 // Import kernel transform primitives - these handle normalization internally
-import _clay_translate, _clay_rotate, _clay_scale, _clay_mirror from _clay_kernel
-import _clay_linear_pattern, _clay_circular_pattern from _clay_kernel
+import _clay_translate, _clay_rotate, _clay_scale, _clay_mirror from clay_kernel
+import _clay_linear_pattern, _clay_circular_pattern from clay_kernel
 
 // =============================================================================
 // TRANSLATE

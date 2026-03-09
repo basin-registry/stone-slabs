@@ -1,0 +1,30 @@
+import box, cylinder, subtract, fillet, edges, concave_edges, convex_edges from clay
+import get_brep from clay
+import canvas3d, show from display
+
+// Base plate with holes
+plate = box({size = [100, 60, 8]})
+hole1 = cylinder({radius = 4, height = 10, center = [30, 15, 4]})
+hole2 = cylinder({radius = 4, height = 10, center = [-30, 15, 4]})
+hole3 = cylinder({radius = 4, height = 10, center = [30, -15, 4]})
+hole4 = cylinder({radius = 4, height = 10, center = [-30, -15, 4]})
+
+drilled = plate
+    |> subtract(hole1)
+    |> subtract(hole2)
+    |> subtract(hole3)
+    |> subtract(hole4)
+
+// Round the outer edges
+result = fillet(drilled, {
+    edges = edges(drilled) |> convex_edges,
+    radius = 2
+})
+
+
+print(result)
+// Render the model
+show(canvas3d({
+    axes = true,
+    objects = [get_brep(result)]
+}))

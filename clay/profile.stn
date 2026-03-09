@@ -8,8 +8,8 @@
 //   profile = plate |> subtract(hole)
 
 import Profile from clay/types
-import _clay_profile_rect, _clay_profile_circle from _clay_kernel
-import _clay_profile_ellipse, _clay_profile_polygon, _clay_profile_slot from _clay_kernel
+import _clay_profile_rect, _clay_profile_circle from clay_kernel
+import _clay_profile_ellipse, _clay_profile_polygon, _clay_profile_slot from clay_kernel
 
 // =============================================================================
 // PROFILE SPEC TYPES

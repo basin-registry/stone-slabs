@@ -6,31 +6,39 @@ version = "0.3.5"
 entry = "main.stn"
 description = "Full BRep solid modeling with boolean operations, fillets, chamfers, queries, profiles, and mesh extraction"
 
-// Native C/C++ extension — compiled to WASM and LLVM IR from the same source
-// Function exports are derived automatically from .stn import statements.
-// Return types are auto-detected from C function signatures.
-// Naming convention: _clay_box → C symbol stone_clay_box
+// External native modules
 extern = {
-  type = "c"
-  name = "clay_kernel"
-  sources = ["kernel/clay_kernel.c", "kernel/occt_wrapper.cpp"]
+  clay_kernel = {
+    // Pre-built artifacts (ready to use)
+    builds = {
+      wasm = "kernel/builds/wasm/clay_kernel.wasm"
+    }
 
-  // External library dependencies
-  // Native: resolved via pkg-config or system linker paths
-  // WASM: resolved from <DEPNAME>_WASM_ROOT env var (e.g., OPENCASCADE_WASM_ROOT)
-  deps = {
-    opencascade = {
-      native = {
-        libs = ["TKMesh", "TKOffset", "TKFillet", "TKFeat", "TKBool", "TKBO",
-                "TKPrim", "TKTopAlgo", "TKGeomAlgo", "TKShHealing",
-                "TKBRep", "TKGeomBase", "TKG3d", "TKG2d", "TKMath", "TKernel", "stdc++"]
-      }
-      wasm = {
-        libs = ["TKMesh", "TKOffset", "TKFillet", "TKFeat", "TKBool", "TKBO",
-                "TKPrim", "TKTopAlgo", "TKGeomAlgo", "TKShHealing",
-                "TKBRep", "TKGeomBase", "TKG3d", "TKG2d", "TKMath", "TKernel"]
-        include = "include/opencascade"
-        lib = "lin32/clang/lib"
+    // Build from source
+    source = {
+      lang = "c"
+      files = [
+        "kernel/clay_kernel.c",
+        "kernel/occt_wrapper.cpp",
+        "kernel/planegcs_api.cpp",
+        "kernel/planegcs/GCS.cpp",
+        "kernel/planegcs/Constraints.cpp",
+        "kernel/planegcs/Geo.cpp",
+        "kernel/planegcs/SubSystem.cpp",
+        "kernel/planegcs/qp_eq.cpp"
+      ]
+      include = ["kernel/stubs", "kernel/planegcs"]
+      deps = {
+        eigen = { include = "." }
+        opencascade = {
+          libs = ["TKMesh", "TKOffset", "TKFillet", "TKFeat", "TKBool", "TKBO",
+                  "TKPrim", "TKTopAlgo", "TKGeomAlgo", "TKShHealing",
+                  "TKBRep", "TKGeomBase", "TKG3d", "TKG2d", "TKMath", "TKernel"]
+          wasm = {
+            include = "include/opencascade"
+            lib = "lin32/clang/lib"
+          }
+        }
       }
     }
   }
